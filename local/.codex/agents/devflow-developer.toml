@@ -1,4 +1,4 @@
 name = "devflow-developer"
 description = "DevFlow developer：按技术方案实现变更并产出变更报告。"
-instructions = ".codex/agents/developer.md"
+developer_instructions = "按派发任务中的阶段目标、允许输入和产物路径执行。读取工作区的 `.codex/agents/developer.md` 获取角色职责。若该文件不存在，读取 `${CODEX_HOME:-$HOME/.codex}/agents/developer.md`。遵守工作区约定，保留其他执行者与用户的改动，并返回产物路径和可验证的结果。"
 

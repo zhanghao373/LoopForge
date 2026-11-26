@@ -19,31 +19,29 @@ CREATE TEMPORARY TABLE consolidated_sop_steps (
 
 INSERT INTO consolidated_sop_steps VALUES
 ('generic-requirement-development', 1, 'outline', '调研、需求澄清与提纲', 'agent', '', 'clarification', '', 'outline',
- '调研现有代码、相关资料和受影响流程，记录证据和约束。梳理需求目标、前后端范围、验收标准及待澄清问题。列出「方案细节」「实施细节」「验证与验收」三部分的小标题与要点，供负责人确认。'),
+ '调研现有代码、相关资料和受影响流程，区分已确认事实、假设和待决定事项，并注明证据出处。为每项验收条件写出可观察结果。列出「方案细节」「实施细节」「验证与验收」的小标题与要点。按对实现的影响列出待决问题及可选方案，交给负责人确认。'),
 ('generic-requirement-development', 2, 'scope', '确认需求与提纲', 'approval', '', 'none', 'outline', '',
  '确认需求边界、待决问题和提纲覆盖的方案细节、实施细节及验证与验收范围。'),
 ('generic-requirement-development', 3, 'architecture', '编写技术方案', 'agent', '', 'development', '', 'design',
- '按已确认提纲和仓库现状写技术方案。明确系统边界、接口与数据契约、权限和错误语义、兼容性、联调验收及回滚。说明前后端各自负责的范围，共用文件须明确由哪一端修改。需要技术图时按问题选 PlantUML 图型。方案供两端各自编写开发 Spec。'),
+ '从已确认提纲、验收条件和现有代码调用链出发，确定系统边界、前后端职责、接口与数据契约、权限、失败和兼容语义、迁移与回滚。关键决策说明取舍及影响。给出实现依赖、先后顺序、可并行范围和共用文件归属，让每项验收条件都能对应验证方法。需要技术图时按问题选 PlantUML 图型。影响方案的决定缺失时提交 human。'),
 ('generic-requirement-development', 4, 'design-accept', '确认技术方案', 'approval', '', 'none', 'architecture', '',
  '确认技术方案中的取舍、前后端边界、接口契约、风险和验收标准。'),
-('generic-requirement-development', 5, 'backend-spec', '后端开发 Spec', 'agent', 'backend', 'development', '', 'backend-spec',
- '依据已确认的技术方案列出后端实现范围、涉及的模块和文件、数据与迁移、异常场景、测试和回滚。沿用技术方案约定的接口和共用文件归属，说明依赖或待定项。只写后端开发 Spec。'),
-('generic-requirement-development', 6, 'frontend-spec', '前端开发 Spec', 'agent', 'frontend', 'development', '', 'frontend-spec',
- '依据已确认的技术方案列出前端实现范围、影响页面和组件、交互状态、接口对接、模拟数据及验证用例。沿用技术方案约定的接口和共用文件归属。只写前端开发 Spec。'),
-('generic-requirement-development', 7, 'backend-implement', '后端开发', 'agent', 'backend', 'development', '', 'backend-implementation',
- '按后端开发 Spec 和已确认的接口契约实现后端改动，核对旧调用方和已有数据，执行适用的构建、单测或契约测试，记录真实结果。只修改本端负责的文件，保留另一端的改动，避免全局格式化、暂存、提交或推送。'),
-('generic-requirement-development', 8, 'frontend-implement', '前端开发', 'agent', 'frontend', 'development', '', 'frontend-implementation',
- '按前端开发 Spec 实现界面与交互，依据接口契约独立开发，需要时使用模拟数据验证。记录真实构建和测试结果。只修改本端负责的文件，保留另一端的改动，避免全局格式化、暂存、提交或推送。'),
+('generic-requirement-development', 5, 'development-spec', '前后端开发 Spec', 'agent', '', 'development', '', 'interface-contract',
+ '以已确认的技术方案、任务和源码为依据。若从此节点开始，采用任务中已确认的方案或明确的实现约束与验收条件。影响实现或接口对齐的决定缺失时提交 human，列出需确认的事项。写 interface-contract.md，统一记录接口、请求与响应示例、权限、错误、兼容性、联调验收和共用文件归属。写 backend-spec.md，列出后端模块、实现顺序、数据迁移、异常场景、测试和回滚。写 frontend-spec.md，列出页面、组件、实现顺序、加载与空态和错误态、模拟数据及验证。两份 Spec 都引用同一契约，列出各自负责的文件或目录，并把每项职责对应到验收条件和检查方法。核对并行改动没有文件归属冲突。只启用一端时仍写齐三份文件，另一端只记录本轮边界和已有依赖。本节点只产出 Spec。'),
+('generic-requirement-development', 7, 'backend-implement', '后端开发', 'agent', 'backend', 'development', '', '',
+ '读取 backend-spec.md 和 interface-contract.md，在本次运行的工作区按本端文件归属实现。复用现有实现，检查旧调用方、已有数据及错误和回滚路径，运行适用的构建、单测和契约测试。实现前后核对实际差异，保留另一端的并行改动，避免全局格式化、暂存、提交或推送。必须改变共享契约或文件归属、缺少关键资料时提交 human。收到返工意见时定位问题、修正并重跑相关检查。节点结果列出改动、对应验收项、实际执行的命令、结果和未验证项。'),
+('generic-requirement-development', 8, 'frontend-implement', '前端开发', 'agent', 'frontend', 'development', '', '',
+ '读取 frontend-spec.md 和 interface-contract.md，在本次运行的工作区按本端文件归属实现。复用现有组件及交互模式，核对加载、空态、错误和权限场景，必要时用符合契约的模拟数据自测，运行适用的构建和测试。实现前后核对实际差异，保留另一端的并行改动，避免全局格式化、暂存、提交或推送。必须改变共享契约或文件归属、缺少关键资料时提交 human。收到返工意见时定位问题、修正并重跑相关检查。节点结果列出改动、对应验收项、实际执行的命令、结果和未验证项。'),
 ('generic-requirement-development', 9, 'backend-review', '后端代码评审', 'agent', 'backend', 'development', 'backend-implement', 'backend-review',
- '独立审查后端实际差异、后端开发 Spec 和测试证据，关注接口语义、兼容性、数据和错误场景。记录问题位置和修复建议，存在阻断问题时提交 rework，退回后端开发。'),
+ '独立检查工作区实际差异，按 backend-spec.md、interface-contract.md 和验收条件核对本端实现、文件归属、接口兼容、数据、权限与错误场景。核对测试是否覆盖关键路径，必要时运行可复现的检查。每条发现写明文件及位置、触发条件、影响和修复方向，区分阻断问题与改进建议。阻断问题提交 rework，退回后端开发。验证所必需的资料或环境缺失时提交 human。评审阶段只记录结论。'),
 ('generic-requirement-development', 10, 'frontend-review', '前端代码评审', 'agent', 'frontend', 'development', 'frontend-implement', 'frontend-review',
- '独立审查前端实际差异、前端开发 Spec 和测试证据，关注交互状态、可访问性、接口对接和回归。记录问题位置和修复建议，存在阻断问题时提交 rework，退回前端开发。'),
+ '独立检查工作区实际差异，按 frontend-spec.md、interface-contract.md 和验收条件核对本端实现、文件归属、交互状态、可访问性、接口对接和回归。核对测试是否覆盖关键路径，必要时运行可复现的检查。每条发现写明文件及位置、触发条件、影响和修复方向，区分阻断问题与改进建议。阻断问题提交 rework，退回前端开发。验证所必需的资料或环境缺失时提交 human。评审阶段只记录结论。'),
 ('generic-requirement-development', 11, 'qa', '自测与联调', 'agent', '', 'testing', '', 'test-report',
- '结合本次启用的开发与评审结果，执行真实项目测试、构建和可用的端到端场景。两端都有改动时验证真实接口对接。任务要求效果优化且提供评估入口时，同口径测量基线和候选。记录命令、退出码、结果和未覆盖项。存在阻断失败时提交 fail，并说明需要返工的环节。'),
+ '对照实际改动、评审结果和验收条件，先确认仓库已有测试入口和运行环境，再执行适用的构建、测试和端到端检查。覆盖主路径、关键失败路径和受影响的旧行为。两端都有改动时验证真实接口对接，并写明哪些结果来自模拟数据。任务要求效果优化且提供评估入口时，同口径测量基线和候选。逐项记录通过、失败、受阻或未执行及原因，附实际命令、退出码和关键输出。阻断失败时提交 fail 并指出应返工的环节。缺少必要环境或资料时提交 human，说明所需条件。'),
 ('generic-requirement-development', 12, 'accept', '人工验收', 'approval', '', 'none', 'qa', '',
  '对照任务范围，核对实际交付、已启用的两端评审、自测联调结果和剩余问题。'),
 ('generic-requirement-development', 13, 'delivery', '交付汇总', 'agent', '', 'none', '', 'delivery',
- '汇总工作区实际变更、方案、测试证据、剩余限制及交付文件。有代码变更时归档 change.patch，覆盖工作区本任务的变更和新增文件。适用时起草 MR/PR 正文，引用已存在的真实链接。'),
+ '核对工作区最终差异、方案、评审结论、联调证据和人工验收结果，逐项汇总交付结果、证据位置与剩余限制。涉及发布风险时注明回滚办法。仅记录本次验证过且可复用的技术决策或踩坑，标出适用条件和证据。有代码变更时归档 change.patch，覆盖工作区本任务的变更和新增文件。适用时起草 MR/PR 正文，引用已存在的真实链接。'),
 
 ('generic-defect-repair', 1, 'reproduce', '收集信息与复现', 'agent', '', 'clarification', '', 'reproduction',
  '从任务和相关源码提取预期、实际表现、版本、环境、最小复现步骤，执行能安全复现的检查。记录真实输出；无法复现时写明缺失信息和已尝试的检查。'),
@@ -75,9 +73,16 @@ WITH node_rows AS (
     IF(launch_group = '', JSON_OBJECT(), JSON_OBJECT('launchGroup', launch_group)),
     IF(reject_to = '', JSON_OBJECT(), JSON_OBJECT('rejectTo', reject_to, 'onFailure', 'reject')),
     IF(node_type = 'approval', JSON_OBJECT('taskPrompt', prompt),
-       JSON_OBJECT('agentId', CONCAT(workflow_id, '-', node_id),
-                   'artifactOutputs', JSON_ARRAY(JSON_OBJECT('name', artifact, 'path', CONCAT(artifact, '.md'),
-                                                            'mediaType', 'text/markdown', 'required', TRUE)))),
+       JSON_OBJECT('agentId', CONCAT(workflow_id, '-', node_id))),
+    CASE
+      WHEN artifact = '' THEN JSON_OBJECT()
+      WHEN node_id = 'development-spec' THEN JSON_OBJECT('artifactOutputs', JSON_ARRAY(
+        JSON_OBJECT('name', artifact, 'path', CONCAT(artifact, '.md'), 'mediaType', 'text/markdown', 'required', TRUE),
+        JSON_OBJECT('name', 'backend-spec', 'path', 'backend-spec.md', 'mediaType', 'text/markdown', 'required', TRUE),
+        JSON_OBJECT('name', 'frontend-spec', 'path', 'frontend-spec.md', 'mediaType', 'text/markdown', 'required', TRUE)))
+      ELSE JSON_OBJECT('artifactOutputs', JSON_ARRAY(
+        JSON_OBJECT('name', artifact, 'path', CONCAT(artifact, '.md'), 'mediaType', 'text/markdown', 'required', TRUE)))
+    END,
     IF(node_id = 'delivery', JSON_OBJECT('artifactOutputs',
       JSON_ARRAY(JSON_OBJECT('name', artifact, 'path', CONCAT(artifact, '.md'), 'mediaType', 'text/markdown', 'required', TRUE),
                  JSON_OBJECT('name', 'change', 'path', 'change.patch', 'mediaType', 'text/plain', 'required', FALSE))), JSON_OBJECT())
@@ -97,9 +102,8 @@ WITH ordered_steps AS (
 ), edge_rows AS (
   SELECT workflow_id, seq, node_id,
     CASE node_id
-      WHEN 'frontend-spec' THEN 'design-accept'
-      WHEN 'backend-implement' THEN 'backend-spec'
-      WHEN 'frontend-implement' THEN 'frontend-spec'
+      WHEN 'backend-implement' THEN 'development-spec'
+      WHEN 'frontend-implement' THEN 'development-spec'
       WHEN 'backend-review' THEN 'backend-implement'
       WHEN 'frontend-review' THEN 'frontend-implement'
       ELSE previous_node
@@ -117,8 +121,9 @@ SELECT workflow_id, edges FROM edge_lists WHERE seq = 2;
 CREATE TEMPORARY TABLE consolidated_sop_agents AS
 WITH agent_rows AS (
   SELECT workflow_id, seq, JSON_OBJECT(
-    'id', CONCAT(workflow_id, '-', node_id), 'name', name, 'version', 1, 'executorId', 'codex',
-    'prompt', CONCAT(prompt, CHAR(10), CHAR(10), '阅读仓库约定、任务和可用的上游产物。若本轮跳过上游节点，使用已有材料，缺少必要证据时说明。不要伪造结果、泄露凭据或执行未经授权的外部写入。写入 ', artifact, '.md。', CHAR(10), CHAR(10), '任务：{{input}}', CHAR(10), '仓库：{{repository}}')
+    'id', CONCAT(workflow_id, '-', node_id), 'name', name,
+    'version', IF(workflow_id = 'generic-requirement-development', 2, 1), 'executorId', 'codex',
+    'prompt', CONCAT(prompt, CHAR(10), CHAR(10), '阅读仓库约定、任务和可用的上游产物。若本轮跳过上游节点，使用已有材料，缺少必要证据时说明。不要伪造结果、泄露凭据或执行未经授权的外部写入。', IF(artifact = '' OR node_id = 'development-spec', '', CONCAT('写入 ', artifact, '.md。')), CHAR(10), CHAR(10), '任务：{{input}}', CHAR(10), '仓库：{{repository}}')
   ) AS agent
   FROM consolidated_sop_steps WHERE node_type = 'agent'
 ), agent_lists AS (
@@ -131,8 +136,8 @@ SELECT workflow_id, agents FROM agent_lists WHERE seq = 1;
 CREATE TEMPORARY TABLE consolidated_sop_definitions AS
 WITH templates AS (
   SELECT 'generic-requirement-development' AS id, '需求开发 SOP' AS name,
-    '调研、澄清与技术方案确认，前后端并行编写开发 Spec、实现和评审，再自测联调、验收交付。' AS description,
-    3 AS version, 'backend' AS lane, '需求开发' AS metric_category, JSON_ARRAY() AS requirements
+    '调研、澄清与技术方案确认，统一生成前后端开发 Spec，随后并行实现和评审，再自测联调、验收交付。' AS description,
+    5 AS version, 'backend' AS lane, '需求开发' AS metric_category, JSON_ARRAY() AS requirements
   UNION ALL SELECT 'generic-defect-repair', '缺陷修复 SOP',
     '复现、定位、最小修复、独立评审、回归验证和验收。',
     2, 'repair', 'Bug 修复', JSON_ARRAY(JSON_OBJECT('key', 'source-code', 'label', '待修项目代码'))
@@ -155,13 +160,35 @@ SELECT id, name, CAST(payload AS JSON), UTC_TIMESTAMP() FROM consolidated_sop_de
 -- Upgrade the shipped consolidated blueprints when their prior revisions are present.
 UPDATE generic_templates current_sop
 JOIN consolidated_sop_definitions replacement ON replacement.id COLLATE utf8mb4_unicode_ci = current_sop.id
-SET current_sop.payload = CAST(replacement.payload AS JSON), current_sop.updated_at = UTC_TIMESTAMP()
+SET current_sop.payload = CASE
+    WHEN current_sop.id = 'generic-requirement-development'
+         AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Agents'), JSON_ARRAY(
+           JSON_OBJECT('id', 'generic-requirement-development-backend-spec'),
+           JSON_OBJECT('id', 'generic-requirement-development-frontend-spec'))) THEN
+      -- Keep the former Spec roles resolvable for runs carrying the old graph.
+      JSON_ARRAY_APPEND(CAST(replacement.payload AS JSON),
+        '$.Agents', JSON_EXTRACT(current_sop.payload, REPLACE(JSON_UNQUOTE(JSON_SEARCH(current_sop.payload, 'one', 'generic-requirement-development-backend-spec', NULL, '$.Agents[*].id')), '.id', '')),
+        '$.Agents', JSON_EXTRACT(current_sop.payload, REPLACE(JSON_UNQUOTE(JSON_SEARCH(current_sop.payload, 'one', 'generic-requirement-development-frontend-spec', NULL, '$.Agents[*].id')), '.id', '')))
+    ELSE CAST(replacement.payload AS JSON)
+  END,
+  current_sop.updated_at = UTC_TIMESTAMP()
 WHERE (current_sop.id = 'generic-requirement-development' AND (
     (JSON_EXTRACT(current_sop.payload, '$.Workflow.revision') = 1
      AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Workflow.nodes'), JSON_OBJECT('id', 'backend-design')))
     OR
     (JSON_EXTRACT(current_sop.payload, '$.Workflow.revision') = 2
      AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Workflow.nodes'), JSON_OBJECT('id', 'detailed-design')))
+    OR
+    (JSON_EXTRACT(current_sop.payload, '$.Workflow.revision') = 3
+     AND JSON_EXTRACT(current_sop.payload, '$.Workflow.publishedRevision') = 3
+     AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Workflow.nodes'), JSON_ARRAY(JSON_OBJECT('id', 'backend-spec'), JSON_OBJECT('id', 'frontend-spec')))
+     AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Agents'), JSON_ARRAY(JSON_OBJECT('id', 'generic-requirement-development-backend-spec'), JSON_OBJECT('id', 'generic-requirement-development-frontend-spec')))
+     AND NOT EXISTS (SELECT 1 FROM JSON_TABLE(current_sop.payload, '$.Agents[*]' COLUMNS (role_version INT PATH '$.version')) AS roles WHERE roles.role_version > 1))
+    OR
+    (JSON_EXTRACT(current_sop.payload, '$.Workflow.revision') = 4
+     AND JSON_EXTRACT(current_sop.payload, '$.Workflow.publishedRevision') = 4
+     AND JSON_CONTAINS(JSON_EXTRACT(current_sop.payload, '$.Workflow.nodes'), JSON_OBJECT('id', 'development-spec'))
+     AND NOT EXISTS (SELECT 1 FROM JSON_TABLE(current_sop.payload, '$.Agents[*]' COLUMNS (role_version INT PATH '$.version')) AS roles WHERE roles.role_version > 1))
   )) OR (
     current_sop.id = 'generic-defect-repair'
     AND JSON_EXTRACT(current_sop.payload, '$.Workflow.revision') = 1

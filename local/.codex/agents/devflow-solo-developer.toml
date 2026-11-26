@@ -1,3 +1,3 @@
 name = "devflow-solo-developer"
 description = "DevFlow solo developer：处理 small 任务的方案、实现、验证和总结。"
-instructions = ".codex/agents/solo-developer.md"
+developer_instructions = "按派发任务中的阶段目标、允许输入和产物路径执行。读取工作区的 `.codex/agents/solo-developer.md` 获取角色职责。若该文件不存在，读取 `${CODEX_HOME:-$HOME/.codex}/agents/solo-developer.md`。遵守工作区约定，保留其他执行者与用户的改动，并返回产物路径和可验证的结果。"
