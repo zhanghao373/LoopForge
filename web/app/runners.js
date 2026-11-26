@@ -1,4 +1,15 @@
-function openRunModal(workflowId){const select=$('#runWorkflowChoice'),workflows=runnableWorkflowOptions();select.innerHTML=workflows.map(w=>`<option value="${escapeHTML(w.id)}" ${w.id===workflowId?'selected':''}>${escapeHTML(w.name)}</option>`).join('')||'<option value="">暂无可运行 SOP</option>';$('#confirmRun').disabled=!workflows.length;$('#runModal').classList.add('open');setTimeout(()=>$('#runInput').focus(),0)}
+function openRunModal(workflowId){
+  const personal=!!state.data?.capabilities?.personalExecutors,select=$('#runWorkflowChoice');
+  const workflows=runnableWorkflowOptions(workflowId).filter(w=>!personal||w.status==='published');
+  if(workflowId&&!workflows.some(w=>w.id===workflowId))return toast('此 SOP 当前无法发起');
+  select.innerHTML=workflows.map(w=>`<option value="${escapeHTML(w.id)}">${escapeHTML(w.name)}</option>`).join('')||'<option value="">暂无可运行 SOP</option>';
+  const preferred=workflowId||currentProject()?.workflowId;
+  if(workflows.some(w=>w.id===preferred))select.value=preferred;
+  $('#confirmRun').disabled=!select.value;
+  $('#runModal').classList.add('open');
+  openSOPLaunch(workflowId);
+  setTimeout(()=>$('#runInput').focus(),0);
+}
 
 // ---------- 执行机器（bind-cli，个人维度） ----------
 let runnerRefreshTimer=null;
@@ -13,6 +24,7 @@ async function refreshRunners(silent){
     state.defaultRunnerId=def?.runnerId||'';
     state.cloudPool=def?.cloudPool||null;
     state.minRunnerVersion=def?.minRunnerVersion||'';
+    state.minLocalAuthRunnerVersion=def?.minLocalAuthRunnerVersion||'';
     renderRunnersView();
   }catch(e){if(!silent)toast(e.message)}
 }
@@ -119,13 +131,16 @@ function renderRunnersView(){
   const runners=state.runners||[];
   const defaultId=state.defaultRunnerId||'';
   $('#runnerCount').textContent=String(runners.length);
+  const localMode=state.data?.capabilities?.personalExecutors;
   const poolStatus=$('#runnerPoolStatus');
   if(poolStatus){
     const def=runners.find(r=>r.id===defaultId),pool=state.cloudPool;
     let text='',warn=false;
     if(def){
       warn=def.status!=='online';
-      text=warn?'默认机器已离线，新任务会失败。请启动它或切回云端':`在 ${def.name||def.id} 上执行`;
+      text=warn?(localMode?'默认机器已离线，请启动它或选择另一台执行机器。':'默认机器已离线，新任务会失败。请启动它或切回云端'):`在 ${def.name||def.id} 上执行`;
+    }else if(localMode){
+      text='在本地平台容器执行';
     }else if(pool?.configured){
       warn=!pool.online;
       text=pool.online?`云端执行 · ${pool.online} 台在线`:'云端暂无在线机器，新任务最多等待 10 分钟';
@@ -136,16 +151,24 @@ function renderRunnersView(){
   }
   list.innerHTML=runners.map(r=>{
     const isDefault=r.id===defaultId;
-    const discoveredCLIs=(r.runtimes||[]).filter(rt=>runnerCLILabels[rt.provider]);
+    const allowed=state.data?.capabilities?.personalExecutors
+      ?new Set((state.data.executors||[]).map(item=>item.kind))
+      :null;
+    const discoveredCLIs=(r.runtimes||[]).filter(rt=>runnerCLILabels[rt.provider]&&(!allowed||allowed.has(rt.provider)));
     const cliRows=discoveredCLIs.map(rt=>{
-      const authMode=rt.authMode||(rt.provider==='codebuddy'?'personal':'local');
+      const localAuth=['codex','claude-code','cursor'].includes(rt.provider);
+      const authMode=rt.authMode||(['codex','claude-code'].includes(rt.provider)?'local':'personal');
+      const minAuthVersion=state.minLocalAuthRunnerVersion;
+      const cursorNeedsUpgrade=rt.provider==='cursor'&&minAuthVersion&&!runnerVersionAtLeast(r.runnerVersion,minAuthVersion);
       const credentialReady=runnerPersonalCredentialConfigured(rt.provider);
       const personalLabel=credentialReady?'个人凭证':'个人凭证（未配置）';
       const credentialMissing=authMode==='personal'&&!credentialReady;
       const authControl=rt.provider==='codebuddy'
         ?runnerCodeBuddyAuthHTML(credentialReady)
-        :`<select class="runner-auth-select ${credentialMissing?'missing':''}" data-runner-auth="${escapeHTML(r.id)}|${escapeHTML(rt.provider)}" aria-label="${runnerCLILabels[rt.provider]} 认证来源"${credentialMissing?` title="到个人配置补充 ${runnerCLILabels[rt.provider]} API Key"`:''}>
-            <option value="local" ${authMode==='local'?'selected':''}>本机登录</option>
+        :!localAuth
+          ?`<span class="runner-auth-fixed ${credentialMissing?'missing':''}">${personalLabel}</span>`
+          :`<select class="runner-auth-select ${credentialMissing?'missing':''}" data-runner-auth="${escapeHTML(r.id)}|${escapeHTML(rt.provider)}" aria-label="${runnerCLILabels[rt.provider]} 认证来源"${credentialMissing?` title="到个人配置补充 ${runnerCLILabels[rt.provider]} API Key"`:''}>
+            <option value="local" ${authMode==='local'?'selected':''} ${cursorNeedsUpgrade?'disabled':''}>${cursorNeedsUpgrade?`本机登录（需升级至 ${escapeHTML(minAuthVersion)}）`:'本机登录'}</option>
             <option value="personal" ${authMode==='personal'?'selected':''}>${personalLabel}</option>
           </select>`;
       return `
@@ -168,7 +191,7 @@ function renderRunnersView(){
       <div class="runner-card-action">
         ${runnerRunLimitHTML(r)}
         <span class="runner-card-spacer"></span>
-        ${isDefault?'<button class="button ghost small runner-text-button" type="button" data-set-default="">切回云端</button>':''}
+        ${isDefault?`<button class="button ghost small runner-text-button" type="button" data-set-default="">${localMode?'切回本地容器':'切回云端'}</button>`:''}
         ${r.status==='online'?'':`<button class="button ghost small runner-text-button" type="button" data-remove-runner="${escapeHTML(r.id)}" title="机器已不再使用时移除绑定">移除</button>`}
         ${isDefault?'':`<button class="button hui-btn-soft small" type="button" ${defaultBlocker?`disabled title="${escapeHTML(defaultBlocker)}"`:''} data-set-default="${escapeHTML(r.id)}">设为默认</button>`}
       </div>

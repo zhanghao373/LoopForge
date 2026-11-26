@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ type ConversationCommand struct {
 	AgentCLI    AgentCLIOptions
 	Credentials RunCredentials
 	Interactive bool
+	LocalLogin  bool `json:"localLogin,omitempty"`
 }
 
 func ConversationCommandFor(command CommandSpec, credentials RunCredentials) *ConversationCommand {
@@ -410,11 +412,17 @@ func (p *ConversationProcessPool) start(ctx context.Context, root, workspace str
 	var sb Sandbox
 	var release func()
 	var stdin io.Closer
+	var cleanupLocalLogin func() error
 	finish := func(runErr error, notStarted bool) {
 		cancel()
 		// Cancellation can skip the shell EXIT trap. Clean ephemeral ZCode
 		// credentials before publishing completion or releasing this root.
-		credentialCleanupErr := cleanupConversationCredentialFiles(root, req.Command.Provider)
+		var credentialCleanupErr error
+		if cleanupLocalLogin != nil {
+			credentialCleanupErr = cleanupLocalLogin()
+		} else {
+			credentialCleanupErr = cleanupConversationCredentialFiles(root, req.Command.Provider)
+		}
 		if stdin != nil {
 			_ = stdin.Close()
 		}
@@ -588,6 +596,25 @@ func (p *ConversationProcessPool) start(ctx context.Context, root, workspace str
 		bindSandbox = &localSandbox{id: "conversation", workspace: bindWorkspace}
 	} else {
 		bindWorkspace = bindSandbox.Workspace()
+	}
+	if req.Command.LocalLogin {
+		fileAuth, cleanup, err := StageRunnerLocalLogin(procCtx, command.Provider, sandboxDriver(bindSandbox), AgentCLIHome{Base: root, Rel: "home"})
+		if err != nil {
+			return ConversationProcessResult{}, err
+		}
+		cleanupLocalLogin = cleanup
+		command.CredentialBindings = slices.DeleteFunc(append([]CredentialBinding(nil), command.CredentialBindings...), func(binding CredentialBinding) bool {
+			return binding == BindCodex || binding == BindClaudeCode || binding == BindAgentCLI
+		})
+		switch command.Provider {
+		case "codex":
+			command.Argv = append(command.Argv, "-c", `cli_auth_credentials_store="file"`)
+		case AgentCLICursor:
+			command = WithCommandEnvironment(command, cursorLoginEnvironment(command.environment["HOME"], fileAuth))
+			if model := command.AgentCLI.Model; model != "" {
+				command.Argv = withCursorModelArg(command.Argv, CursorModelID(model, command.AgentCLI.Effort, req.Command.Credentials.AgentCLI[AgentCLICursor].Models))
+			}
+		}
 	}
 	nativeArgv := append([]string(nil), command.Argv...)
 	command, err = bindCommand(bindSandbox, bindWorkspace, command, req.Command.Credentials)

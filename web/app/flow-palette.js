@@ -76,12 +76,18 @@ const flowPalette=(()=>{
     document.querySelectorAll('#flowPaletteBody .fd-pal-group').forEach(group=>{
       if(group.dataset.palGroup==='role'){group.hidden=!!q&&!roles.length;return}
       let visibleItems=0;
-      group.querySelectorAll('.fd-pal-item').forEach(item=>{const ok=matches(q,item.textContent);item.hidden=!ok;if(ok)visibleItems++});
+      group.querySelectorAll('.fd-pal-item').forEach(item=>{const ok=!(state.data?.capabilities?.personalExecutors&&item.dataset.add==='preview')&&matches(q,item.textContent);item.hidden=!ok;if(ok)visibleItems++});
       group.hidden=!visibleItems;shown+=visibleItems;
     });
     const empty=document.getElementById('flowPaletteEmpty');
     if(empty){empty.hidden=!!shown||!q;empty.textContent=`没有匹配「${raw}」的节点`}
     const pal=document.getElementById('flowPalette');
+    if(localStorage.getItem(COLLAPSE_KEY)===null&&typeof isPersonalSOP==='function'){
+      const collapsed=isPersonalSOP();
+      pal?.classList.toggle('collapsed',collapsed);
+      const button=document.getElementById('flowPaletteCollapse');
+      if(button)button.dataset.tip=collapsed?'展开节点库':'收起节点库';
+    }
     pal?.classList.toggle('readonly',typeof flowReadOnly==='function'&&flowReadOnly());
   }
   function payload(el){return el.dataset.agentId?{type:'agent',agentId:el.dataset.agentId}:{type:el.dataset.add}}

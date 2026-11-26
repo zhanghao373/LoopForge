@@ -26,13 +26,13 @@ type RunTiming struct {
 // load events only for timing can filter on these.
 var RunTimingEventTypes = []string{
 	"node.started", "node.succeeded", "node.failed", "node.paused", "node.cancelled",
-	"node.interrupted", "node.passed", "gate.waiting", "gate.auto_approved",
+	"node.interrupted", "node.guidance", "node.passed", "gate.waiting", "gate.auto_approved",
 	"run.parked", "run.paused", "run.failed", "run.cancelled", "run.succeeded",
 }
 
 var nodeIntervalClosers = map[string]bool{
 	"node.succeeded": true, "node.failed": true, "node.paused": true, "node.cancelled": true,
-	"node.interrupted": true, "node.passed": true, "gate.waiting": true, "gate.auto_approved": true,
+	"node.interrupted": true, "node.guidance": true, "node.passed": true, "gate.waiting": true, "gate.auto_approved": true,
 }
 
 var runIntervalClosers = map[string]bool{

@@ -105,11 +105,42 @@ function flowStatusPill(wf){
   return {cls:'draft',label:'草稿'};
 }
 let workflowPublishing=false;
+function isPersonalSOP(w=state.workflow){
+  return !!w&&catalogOwned(w.projectId)&&w.status!=='archived'&&w.tags?.includes('personal-sop');
+}
+function personalSOPs(){
+  return (state.data?.workflows||[])
+    .filter(isPersonalSOP)
+    .sort((a,b)=>a.id.localeCompare(b.id));
+}
+function renderPersonalSOPs(){
+  const nav=$('#personalSOPs');if(!nav)return;
+  const workflows=isPersonalSOP()?personalSOPs():[];
+  nav.hidden=!workflows.length;
+  nav.innerHTML=workflows.map(w=>`<button type="button" class="fd-btn ghost sm" data-personal-sop="${escapeHTML(w.id)}" aria-current="${w.id===state.workflow?.id}">${escapeHTML(w.name)}</button>`).join('');
+  nav.onclick=async event=>{
+    const target=event.target.closest('[data-personal-sop]');
+    if(!target)return;
+    const id=target.dataset.personalSop;
+    await switchFlowWorkflow(id);
+    Array.from(nav.querySelectorAll('[data-personal-sop]')).find(btn=>btn.dataset.personalSop===id)?.focus();
+  };
+}
 function workflowNeedsPublish(wf=state.workflow){
   return !!wf&&(state.workflowDirty||wf.status!=='published'||(wf.publishedRevision||wf.revision)!==wf.revision);
 }
 function renderFlowHeader(){
+  renderPersonalSOPs();
   const wf=state.workflow;
+  const personal=isPersonalSOP(wf);
+  $('#flowView')?.classList.toggle('fd-personal',!!personal);
+  const run=$('#runPersonalSOP');
+  if(run){
+    run.hidden=!personal;
+    run.disabled=!personal||workflowNeedsPublish(wf)||workflowPublishing;
+    run.title=run.disabled?'先发布当前修改':'运行当前 SOP';
+    run.onclick=()=>openRunModal(wf?.id);
+  }
   const title=$('#flowCommandTitle');
   if(title){title.textContent=wf?(wf.name||'未命名流程'):'选择或新建 SOP';title.title=wf?.name||''}
   const copyName=$('#copyWorkflowName');if(copyName)copyName.hidden=!wf
@@ -283,17 +314,24 @@ function flowNodeTint(n){
   return {agent:'79 107 255',script:'139 92 246',sop:'14 165 233',preview:'217 119 6',approval:'16 163 127'}[kind];
 }
 function flowNodeEl(id){return document.querySelector(`#nodes .flow-node[data-id="${CSS.escape(id)}"]`)}
+function nodeExecutor(n,agent){
+  const roleId=agent?.executorId||n.executorId||'codebuddy';
+  const id=n.executorOverrideId||roleId;
+  const executor=(state.data.executors||[]).find(x=>x.id===id);
+  const name=executor?.name||(id==='a2a'?'A2A Agent':id);
+  return {name,model:(id===roleId?agent?.model:'')||executor?.model||name};
+}
 function nodeMeta(n){
   if(isPreviewBuildNode(n.id))return {kind:'preview',subtitle:'CodeBuddy 静态站点构建',tags:[{text:workflowPreviewModel(state.workflow)}]};
   if(n.type==='agent'){
     const a=workflowAgent(n.agentId),generic=catalogGeneric(state.workflow);
-    const e=(state.data.executors||[]).find(x=>x.id===(a?.executorId||n.executorId));
     const subtitle=a?.name||(n.agentId?(generic?n.agentId:'角色不可用'):'未绑定角色');
     const tags=[];
     if(!n.agentId)tags.push({text:'未绑定角色',warn:true});
     else if(!a)tags.push({text:generic?'通用模板角色':'角色不可用',warn:!generic});
     else{
-      const model=a.model||e?.model||e?.name||'';
+      const {name,model}=nodeExecutor(n,a);
+      if(n.executorOverrideId&&name!==model)tags.push({text:name});
       tags.push(model?{text:model}:{text:'未选模型',warn:!generic});
       tags.push({text:`${effectiveNodeArtifacts(n,a).length} 产物`});
       tags.push({text:a.loop?.enabled?`${a.loop.maxIterations||1} 轮 Loop`:'单轮'});
@@ -772,7 +810,7 @@ function renderAgentGovernance(a){
   host.innerHTML=`<div class="as-section-stack">
     <section class="as-section-block as-loop-card"><div class="as-section-head"><b>做不对应再试一次</b><small>同一沙箱里重跑，适合测试失败后只修失败项</small></div><label class="as-switch-row"><span><b>启用自动重试</b><small>门禁失败后进入下一轮，直到通过或达到次数上限</small></span><input name="loopEnabled" type="checkbox" ${loop.enabled?'checked':''} role="switch"></label><div class="as-grid as-grid-tight"><label class="as-field"><span>最多试几轮</span><input name="loopMaxIterations" type="number" min="1" max="12" value="${loop.maxIterations||3}"></label><label class="as-field"><span>试完仍失败</span><select name="loopOnExhausted" class="select"><option value="fail" ${loop.onExhausted!=='human'?'selected':''}>标记失败并停下</option><option value="human" ${loop.onExhausted==='human'?'selected':''}>交给人工处理</option></select></label><label class="as-field wide"><span>下一轮怎么提醒它</span><textarea name="loopFeedbackPrompt" rows="2" placeholder="读 {{feedback}}，只修失败项，不要重做已经通过的部分">${escapeHTML(loop.feedbackPrompt||'')}</textarea></label></div></section>
     <section class="as-section-block"><div class="as-section-head"><b>要交的文件</b><small>写相对工作区的路径，例如 <code>fix-plan.md</code></small></div><div id="agentArtifactPanel"></div></section>
-    <section class="as-section-block"><div class="as-section-head"><b>产物通过后的门禁命令</b><small>必需产物先校验；通过后才按顺序执行这些命令</small></div><div id="agentGatePanel"></div></section>
+    <section class="as-section-block"><div class="as-section-head"><b>产物通过后的门禁命令</b><small>选择继承角色门禁的 SOP 节点会执行这些命令。独立 Verifier 在 SOP 节点上引用。</small></div><div id="agentGatePanel"></div></section>
     <section class="as-section-block"><div class="as-section-head"><b>要不要人看一眼</b><small>打开后，运行会停在「待我确认」</small></div><div class="as-toggle-grid"><label class="as-switch-row"><span><b>做完后先复核</b><small>Agent 写完结论，人批准再往下走</small></span><input name="interventionAfter" type="checkbox" ${after?'checked':''} role="switch"></label><label class="as-switch-row"><span><b>交文件前先确认</b><small>磁盘产物落盘前停一下</small></span><input name="interventionPublish" type="checkbox" ${publish?'checked':''} role="switch"></label></div></section>
   </div>`;
   renderAgentArtifactEditors(d);
@@ -855,13 +893,16 @@ function roleGates(agent){
 function nodeGatePane(n){
   const agent=workflowAgent(n.agentId);
   const artifacts=effectiveNodeArtifacts(n,agent);
-  const gates=roleGates(agent);
+  const gates=n.verification==null?roleGates(agent):[];
   const step=(i,title,sub,body)=>`<li class="fd-tl-step"><span class="fd-tl-n">${i}</span><div class="fd-tl-c"><div class="fd-tl-h"><b>${title}</b><small>${sub}</small></div>${body}</div></li>`;
   const artifactRows=artifacts.length?artifacts.map(a=>`<div class="fd-tl-row"><span class="fd-tl-ic">${flowPalette.icon('file',13)}</span><span class="fd-tl-main"><b>${escapeHTML(a.name||a.path||'未命名产物')}</b><code>${escapeHTML(a.path||'未设置路径')}</code></span><span class="fd-tag${a.required?'':' soft'}">${a.required?'必须交':'可选'}</span></div>`).join(''):'<div class="fd-tl-none">这个节点没有声明需要校验的产物。</div>';
   const gateRows=gates.length?gates.map(g=>{const cmds=(g.commands||[]).filter(Boolean);return `<div class="fd-tl-row"><span class="fd-tl-ic">${flowPalette.icon('terminal',13)}</span><span class="fd-tl-main"><b>${escapeHTML(g.name||g.id||'未命名门禁')}</b><code>${escapeHTML(cmds.join(' && ')||'人工确认')}</code><small>${g.executionScope==='repositories'?'每个代码仓库':'Run 工作区'} · 失败后 ${escapeHTML({loop:'本节点自修正',reject:'打回上游',human:'转人工确认',fail:'本节点失败'}[g.onFailure]||'按节点策略')}</small></span></div>`}).join(''):'<div class="fd-tl-none">这个节点没有额外门禁命令。</div>';
   const terminal=n.type==='agent'?step(1,'先提交结构化终态','平台内建',`<div class="fd-tl-row"><span class="fd-tl-ic">${flowPalette.icon('check',13)}</span><span class="fd-tl-main"><code>pass | rework | fail | human</code><small>Agent 完成任务后必须先调用 submit_gate_result 提交终态；缺失时自动恢复同一会话重试。</small></span></div>`):'';
   const base=n.type==='agent'?1:0;
-  return `<p class="prop-hint">执行时 Agent 节点先提交结构化终态，随后校验产物，最后执行可选门禁命令。</p><ol class="fd-tl">${terminal}${step(base+1,'再校验产物',`${artifacts.length} 项`,artifactRows)}${step(base+2,'最后触发额外门禁',`${gates.length} 项`,gateRows)}</ol>${agent?'<button type="button" class="fd-btn ghost sm" id="openBoundAgentValidation">去角色定义编辑校验清单</button>':''}`;
+  const legacy=n.verification==null&&agent
+    ?step(base+2,'继承角色门禁',`${gates.length} 项`,gateRows)
+    :'';
+  return `<ol class="fd-tl">${terminal}${step(base+1,'校验产物',`${artifacts.length} 项`,artifactRows)}${legacy}</ol>${nodeVerifierEditor(n)}${n.verification==null&&agent?'<button type="button" class="fd-btn ghost sm" id="openBoundAgentValidation">查看角色门禁</button>':''}`;
 }
 
 function renderAgentAssetsPanel(a){
@@ -955,7 +996,6 @@ function sectionHead(title,hint,count,unit){
 }
 function agentBindCard(n){
   const agent=workflowAgent(n.agentId);
-  const exec=(state.data.executors||[]).find(x=>x.id===(agent?.executorId||n.executorId));
   const generic=catalogGeneric(state.workflow);
   const projectId=state.workflow?.projectId||state.projectFilter||'',projects=state.data.projects||[];
   const invalid=n.agentId&&!agent?'<option value="" selected disabled>当前绑定角色不可用，请重新选择</option>':'';
@@ -969,8 +1009,26 @@ function agentBindCard(n){
   if(!agent)return `<div class="fd-field"><label>这个步骤用哪个角色</label><select class="select" data-p="agentId">${opts}</select><p class="prop-hint">${hint}</p><p class="prop-hint">先选一个已定义的角色。画布只编排顺序和打回，不改编排角色内部的任务。</p></div>`;
   const arts=effectiveNodeArtifacts(n,agent),gates=roleGates(agent);
   const duty=String(agent.description||'').trim(),taskHint=duty?(duty.length>48?`${duty.slice(0,48)}…`:duty):'还没写职责，可在角色定义里补';
-  const model=agent.model||exec?.model||exec?.name||'未选模型';
+  const {model}=nodeExecutor(n,agent);
+  const listed=state.data.executors||[];
+  const defaultExecutor=nodeExecutor({...n,executorOverrideId:''},agent).name;
+  const personal=state.data.capabilities?.personalExecutors;
+  const executorIds=personal?listed.map(item=>item.id):['codex','cursor','a2a'];
+  const executorOptions=executorIds.map(id=>{
+    const item=listed.find(x=>x.id===id);
+    const label=item?.name||(id==='a2a'?'A2A Agent（未配置）':id);
+    return `<option value="${id}" ${n.executorOverrideId===id?'selected':''} ${item?'':'disabled'}>${escapeHTML(label)}</option>`;
+  });
+  const legacy=n.executorOverrideId&&!executorIds.includes(n.executorOverrideId)
+    ?`<option value="${escapeHTML(n.executorOverrideId)}" selected ${personal?'disabled hidden':''}>${escapeHTML(personal?'请重新选择执行器':model)}</option>`:'';
+  const executorHint=(n.executorOverrideId||agent.executorId)==='a2a'
+    ?'A2A 读取归档的文本产物，使用服务配置的模型和工具。'
+    :'所选 CLI 使用当前账号选中的执行机器。';
+  const executorField=`<div class="fd-field"><label for="nodeExecutorOverride">节点执行器</label><select class="select" id="nodeExecutorOverride" data-p="executorOverrideId"><option value="">跟随角色（${escapeHTML(defaultExecutor)}）</option>${legacy}${executorOptions.join('')}</select><p class="prop-hint">${executorHint}</p></div>`;
+  if(isPersonalSOP())return `${executorField}
+    <div class="fd-field"><label for="personalNodeRole">执行角色</label><select class="select" id="personalNodeRole" data-p="agentId">${opts}</select><button type="button" class="fd-btn ghost sm" id="openBoundAgent">编辑角色提示词</button></div>`;
   return `<div class="fd-field"><label>这个步骤用哪个角色</label><select class="select" data-p="agentId">${opts}</select><p class="prop-hint">${hint}</p></div>
+    ${executorField}
     <div class="fd-role"><div class="fd-role-h"><span class="fd-tile" style="--tint:${flowPalette.roleTint(agent.id)}">${escapeHTML(flowPalette.initial(agent.name))}</span><span class="fd-role-t"><b>${escapeHTML(agent.name)}</b><small>${escapeHTML(taskHint)}</small></span><button type="button" class="fd-btn ghost sm" id="openBoundAgent">编辑角色 prompt</button></div><div class="fd-stats"><div title="${escapeHTML(model)}"><b class="txt">${escapeHTML(model)}</b><small>模型</small></div><div><b>${arts.length}</b><small>产物</small></div><div><b>${gates.length}</b><small>门禁</small></div><div><b>${agent.loop?.enabled?`${agent.loop.maxIterations||1} 轮`:'单轮'}</b><small>Loop</small></div></div></div>`;
 }
 function flowDrawerHead(n,kind,label){
@@ -1021,7 +1079,9 @@ function renderProperties(){
     const scriptPane=n.type==='script'?`<div class="fd-row2"><div class="fd-field"><label>脚本语言</label><select class="select" data-p="scriptLanguage"><option value="shell" ${n.scriptLanguage!=='python'?'selected':''}>Shell</option><option value="python" ${n.scriptLanguage==='python'?'selected':''}>Python</option></select></div><div class="fd-field"><label>执行范围</label><select class="select" data-p="executionScope"><option value="run" ${n.executionScope!=='repositories'?'selected':''}>Run 工作区</option><option value="repositories" ${n.executionScope==='repositories'?'selected':''}>每个代码仓库</option></select></div></div><div class="fd-field"><label>脚本内容</label><button type="button" class="script-editor-launch-btn btn-open-code-editor" id="openScriptNodeEditor"><span>${flowPalette.icon('code',14)} 打开代码编辑器编写脚本</span><span class="script-btn-badge">${scriptCountText}</span></button>${scriptPreview}<p class="prop-hint">逐仓库执行时会自动进入每个仓库根目录，无需手写 cd。</p></div>`:'';
     const approvalPane=n.type==='approval'?`<div class="fd-field"><label>需要确认什么（可选）</label><textarea class="input" rows="4" data-p="taskPrompt" placeholder="例如：检查 MR 的改动范围和测试结果，确认可以上线">${escapeHTML(n.taskPrompt||'')}</textarea><p class="prop-hint">确认步骤会停在「待我确认」，批准后才继续；这段说明会和上下游一起展示给确认人。</p></div>`:'';
     const main=`<section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">主配置</span></div><div class="fd-sec-b">${n.type==='agent'?agentBindCard(n):''}${sopSelect}${scriptPane}${approvalPane}</div></section>`;
-    const gates=n.type==='agent'?flowFold('gates','校验顺序',`${effectiveNodeArtifacts(n,workflowAgent(n.agentId)).length} 产物 · ${roleGates(workflowAgent(n.agentId)).length} 门禁`,nodeGatePane(n),false):'';
+    const verifies=['agent','script','command'].includes(n.type);
+    const gateCount=n.verification==null?roleGates(workflowAgent(n.agentId)).length:n.verification.verifiers?.length||0;
+    const gates=verifies?flowFold('gates','验收与门禁',`${effectiveNodeArtifacts(n,workflowAgent(n.agentId)).length} 产物 · ${gateCount} 门禁`,nodeGatePane(n),false):'';
     const wantReject=state.flowWantReject??(n.onFailure==='reject');
     const targets=state.workflow.nodes.filter(x=>x.id!==n.id).map(x=>`<option value="${escapeHTML(x.id)}" ${x.id===n.rejectTo?'selected':''}>${escapeHTML(x.name)}</option>`).join('');
     const fail=`<section class="fd-sec"><div class="fd-sec-h"><span class="fd-sec-t">失败后</span></div><div class="fd-sec-b"><div class="fd-seg fd-seg-full" role="radiogroup" aria-label="失败后"><button type="button" role="radio" data-fail="fail" class="${wantReject?'':'active'}" aria-checked="${!wantReject}">${flowPalette.icon('stop',13)}<span>停下来</span></button><button type="button" role="radio" data-fail="reject" class="${wantReject?'active':''}" aria-checked="${wantReject}">${flowPalette.icon('rotate',13)}<span>打回重做</span></button></div>${wantReject?`<div class="fd-field"><label>打回到</label><select id="rejectTarget" class="select"><option value="">请选择步骤</option>${targets}</select><p class="prop-hint">重置目标步骤及其下游后重跑。也可以从节点的「失败打回」出口直接拖线。</p></div>`:'<p class="prop-hint">重试用尽后标记失败；运行页可以人工通过该节点继续下游。</p>'}</div></section>`;
@@ -1041,12 +1101,13 @@ function renderProperties(){
   setFlowDrawer(true,n.id);
 }
 function bindNodeProperties(host,n){
+  bindNodeVerifiers(host,n);
   host.querySelectorAll('[data-p]').forEach(el=>el.oninput=()=>{
     const key=el.dataset.p;
     if(key!=='sopWorkflowId')flowHistory.record({merge:`p:${n.id}:${key}`});
     n[key]=el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value;
     dirty();
-    if(key==='agentId'){renderProperties();renderCanvas();return}
+    if(key==='agentId'||key==='executorOverrideId'){renderProperties();renderCanvas();return}
     renderCanvas();
   });
   const sopSel=host.querySelector('[data-p="sopWorkflowId"]');
@@ -1064,8 +1125,16 @@ function bindNodeProperties(host,n){
   };
   host.querySelector('#addSOPHandoff')?.addEventListener('click',()=>{flowHistory.record();n.artifactOutputs=n.artifactOutputs||[];n.artifactOutputs.push({name:'',path:'',mediaType:'text/markdown',required:true});renderProperties();dirty()});
   if(n.type==='sop')bindArtifactRows(host,n);
-  const openBound=$('#openBoundAgent');if(openBound)openBound.onclick=()=>{const agent=workflowAgent(n.agentId);if(!agent)return;if(!catalogGeneric(state.workflow))switchView('agents');openAgentWizard(agent,2)};
-  const openBoundValidation=$('#openBoundAgentValidation');if(openBoundValidation)openBoundValidation.onclick=()=>{const agent=workflowAgent(n.agentId);if(!agent)return;if(!catalogGeneric(state.workflow))switchView('agents');openAgentWizard(agent,3)};
+  const editRole=(selector,open)=>{
+    const button=host.querySelector(selector);
+    if(button)button.onclick=()=>{
+      const agent=workflowAgent(n.agentId);if(!agent)return;
+      if(!isPersonalSOP()&&!catalogGeneric(state.workflow))switchView('agents');
+      open(agent);
+    };
+  };
+  editRole('#openBoundAgent',agent=>openAgentWizard(agent,2));
+  editRole('#openBoundAgentValidation',agent=>openAgentWizard(agent,3));
   host.querySelectorAll('[data-fail]').forEach(b=>b.onclick=()=>{
     if(b.dataset.fail==='fail'){state.flowWantReject=false;if(!setRejectTo(n.id,'')&&n.onFailure==='reject'){n.onFailure='fail';dirty()}renderProperties();return}
     state.flowWantReject=true;renderProperties();host.querySelector('#rejectTarget')?.focus();

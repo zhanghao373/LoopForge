@@ -110,14 +110,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	}
 	req.Executor = assistantExecutor(req.Executor)
 	req.Model = assistantRequestModel(req.Executor, req.Model)
-	user, model, refusal := h.assistantTurnUser(stored, req.Model)
-	if refusal != "" {
-		c.JSON(400, gin.H{"error": refusal})
-		return
-	}
-	req.Model = model
-	cliEngine, _ := assistantModelEngine(req.Model)
-	req.Executor = cliEngine
+	user := stored
 	if len(req.Messages) == 0 {
 		c.JSON(400, gin.H{"error": "请提供对话消息"})
 		return
@@ -177,6 +170,37 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 			}
 		}
 	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if req.SessionID == "" {
+		req.SessionID = newAssistantSessionID()
+	}
+	savedConversation, exists := h.repo.AssistantSession(ownerID, req.SessionID)
+	if exists {
+		target := savedConversation.Execution()
+		if req.ExecutionTarget != nil && *req.ExecutionTarget != target {
+			c.JSON(409, gin.H{"error": "会话执行机器已固定，不能更换；请新建对话"})
+			return
+		}
+		req.ExecutionTarget = &target
+	} else {
+		target, err := h.newExecutionTarget(user.ID, req.ProjectID, req.ExecutionTarget)
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		req.ExecutionTarget = target
+	}
+	localLogin, authErr := h.assistantLocalLogin(user.ID, req.ExecutionTarget, req.Model)
+	if authErr != nil {
+		c.JSON(400, gin.H{"error": authErr.Error()})
+		return
+	}
+	user, model, refusal := h.assistantTurnUser(stored, req.Model, localLogin)
+	if refusal != "" {
+		c.JSON(400, gin.H{"error": refusal})
+		return
+	}
+	req.Model = model
 	if err := h.prepareWorkbenchContext(c, &req, user); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -186,8 +210,8 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
-	req.Model = assistantAllowedUserModel(req.Model, catalog, user)
-	cliEngine, _ = assistantModelEngine(req.Model)
+	req.Model = assistantAllowedUserModel(req.Model, catalog, user, localLogin)
+	cliEngine, _ := assistantModelEngine(req.Model)
 	req.Executor = cliEngine
 	if err := validateAssistantEffort(user, req.Model, req.Effort); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -200,10 +224,6 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 	if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(req.Messages, legacyExecutor), req.Model); refusal != "" {
 		c.JSON(409, gin.H{"error": refusal})
 		return
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	if req.SessionID == "" {
-		req.SessionID = newAssistantSessionID()
 	}
 	sink, _ := c.Request.Context().Value(assistantGenerationSinkKey{}).(func(string, any))
 	if sink == nil {
@@ -221,26 +241,12 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		return
 	}
 	defer h.active.Delete(fmt.Sprintf("%d/%s", ownerID, req.SessionID))
-	savedConversation, exists := h.repo.AssistantSession(ownerID, req.SessionID)
-	if exists {
-		target := savedConversation.Execution()
-		if req.ExecutionTarget != nil && *req.ExecutionTarget != target {
-			c.JSON(409, gin.H{"error": "会话执行机器已固定，不能更换；请新建对话"})
-			return
-		}
-		req.ExecutionTarget = &target
-	} else {
-		target, err := h.newExecutionTarget(user.ID, req.ProjectID, req.ExecutionTarget)
-		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
-		savedConversation = assistantConversation{ID: req.SessionID, ProjectID: req.ProjectID, RunID: req.RunID, Model: req.Model, Effort: req.Effort, ExecutionTarget: target, Messages: req.Messages}
-		if err = h.repo.PutAssistantSession(ownerID, savedConversation); err != nil {
+	if !exists {
+		savedConversation = assistantConversation{ID: req.SessionID, ProjectID: req.ProjectID, RunID: req.RunID, Model: req.Model, Effort: req.Effort, ExecutionTarget: req.ExecutionTarget, Messages: req.Messages}
+		if err := h.repo.PutAssistantSession(ownerID, savedConversation); err != nil {
 			c.JSON(409, gin.H{"error": err.Error()})
 			return
 		}
-		req.ExecutionTarget = target
 	}
 	req.workspaceMode = savedConversation.Mode() == domain.AssistantModeWorkspace
 	sourceRoot := h.resolvedSourceRoot()
@@ -293,6 +299,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		sess.turnMessages = append([]assistantMessage(nil), req.Messages...)
 		sess.ExecutionRunnerID = savedConversation.Execution().RunnerID
 		sess.RuntimeMode = savedConversation.Mode()
+		sess.localLogin = localLogin
 		sess.SelectedMCPIDs = map[string]bool{}
 		for _, id := range req.MCPServerIDs {
 			sess.SelectedMCPIDs[id] = true
@@ -498,7 +505,7 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 					prompt = assistantPlatformExecutionReminder + "\n" + prompt
 				}
 				prompt += conversationAttachmentNote(cliRoot, req)
-				cliReq := assistantCLIRequest{Executor: req.Executor, Prompt: prompt, Model: req.Model, Effort: req.Effort, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPConfig: mcp, Settings: settings, SystemPrompt: system, SessionRoot: cliRoot, OnUsage: turnUsage.add, Workspace: req.workspaceMode, RemoteBinary: req.workspaceMode || toolSession.ExecutionRunnerID != "", Execute: h.conversationExecutor(toolSession, cliRoot)}
+				cliReq := assistantCLIRequest{Executor: req.Executor, Prompt: prompt, Model: req.Model, Effort: req.Effort, SessionID: cliSessionID, Resume: resume, UserID: u.ID, Native: true, MCPConfig: mcp, Settings: settings, SystemPrompt: system, SessionRoot: cliRoot, OnUsage: turnUsage.add, Workspace: req.workspaceMode, RemoteBinary: req.workspaceMode || toolSession.ExecutionRunnerID != "", LocalLogin: localLogin, Execute: h.conversationExecutor(toolSession, cliRoot)}
 				persistAttempt := func(unstarted bool) error {
 					if nativeSession != nil {
 						nativeSession.checkpoint.Unstarted = unstarted
@@ -1035,7 +1042,7 @@ const assistantNativeSystemPrompt = `你是 LoopForge 的统一协作助手。�
 平台只读数据用 MCP 工具读取：当前项目和个人已安装的 HTTP MCP，以及 agentflow__issues_list、agentflow__workflows_get、agentflow__agents_list 等平台只读工具。GitHub 仓库可用 repositories_save 绑定；外部 MCP 的能力与工具名以当前已安装工具及 schema 为准，不要假设内置某个私有服务；外部 MCP 的全部工具都可调用，写入外部系统的调用按当前审批模式执行（完全权限直接执行，辅助模式先经自动审批，确认模式会被拒绝，此时把要做的改动告诉用户由其手动完成，不要放进 drafts）。不要把密钥写入参数。stdio MCP 不可用。
 分析运行为什么失败、卡住或需要人工确认时，先用 agentflow__runs_get 读取该运行：problems 列出失败或等待确认的节点、原因，credential 给出需要运行责任人本人配置的个人凭证与步骤。回答时说清卡在哪个节点、具体原因（引用原始错误）、需要谁做什么；凭证问题照 credential.steps 给出配置步骤，并告诉用户对话里的运行提醒卡片有「去配置」按钮可一键跳转。没读到 runs_get 结果前不要猜原因，也不要把凭证问题归因成执行机器故障。
 用户要你改代码、跑命令、构建或测试，或者要查看、评论、审查、合并 GitHub 上的 PR、Issue 时，就在本对话里直接做：调用 workbench_workspace_open 进入工作区（sandboxProfileId 按需要的语言和工具链选择运行环境，不填沿用当前工作区）。工作区是空目录，平台不预先检出仓库：交接后自己 git clone 需要的仓库，自己建分支、提交、推送、开 PR，GitHub API 用已设置的 GH_TOKEN（gh 或 curl）。工具返回 handoff=true 时只回复一句「好的。」并结束本阶段，不向用户解释内部切换，由平台保存原生日志并在同一执行机器的工作区内续接 CLI；handoff=false 表示 SOP 尚在执行，先用 runs_pause 或 runs_cancel 停下。续接后使用 CLI 原生文件、补丁和命令工具完成任务并跑相关测试，最后用简短的话说明改了哪些文件和测试结果。不要让用户去别的入口、另开会话或重复描述需求，也不要为此派发 SOP。推送到主分支、强推、合并 PR 只在用户明确要求时做；开好 PR 后把链接发给用户，平台会在本轮结束时自动把它登记到需求。当前对话没有选择项目、因而没有 workbench_workspace_open 时，请用户点对话右上角的项目名称选择项目（个人对话会直接绑定）后再发一次。平台模式中 cwd 是执行机器上的会话缓存目录，不是项目工作区，原生命令和写入不可用。不要在这里搜索或修改项目代码；先打开工作区，明确开始交接后结束当前阶段。工具集合不会在当前 CLI 内热更新，必须等平台重新启动 CLI 后才使用工作区原生工具；无需用户再发消息。需要打开或查看网页时用 workbench_browser_* 工具（普通对话先用 workbench_workspace_open 开工作区），不要把页面 URL 传给文件或终端工具。用户的浏览器访问不到执行机，但对话侧栏的「浏览器」页签就是你用的这个 Agent 浏览器，用户能实时看到并操作。给用户看页面时，用 workbench_browser_navigate 打开并用 workbench_browser_screenshot 截图（截图自动附在本轮回复里，显示在正文下方），再写出页面地址（file:///workspace/… 或 http://localhost:端口/…），用户点击地址就会在「浏览器」页签打开；工作区回收后这些地址就打不开了，所以要交付 HTML demo、报告等文件，在工作区里用 workbench_publish_artifact 传文件 path 附在回复里（HTML 可在产物栏交互预览）。改动大到需要多角色协作或用户要求走流程时，再建议派发 SOP。
-用户问平台有哪些 SOP、准备写需求、新建项目或不知道怎么开始时，主动推荐平台内置的三套通用 SOP，并用 workflows_list / workflows_get 的实际结果核对后说明各自适合什么、好在哪里：generic-product-delivery（通用产品交付：产品定义 → 交互 Demo → 研发交接 → 产品验收 → TAPD 回写 → 交付汇总；想法还没定型、要先出 PRD 和可以点的交互 Demo 时用）、generic-frontend-delivery（通用前端交付：需求契约 → 实现 → 真实验证 → 发起 MR → 归档，可勾选前端预览自动构建静态站点；页面和交互类需求用）、generic-backend-delivery（通用后端交付：定方案 → 实现 → 增量单测 → 独立 CR → 交付；接口、服务和数据类需求用，新项目默认绑定它）。前后端都要做时，可以先用产品 SOP 定稿，再分别派发前端和后端 SOP。结合用户的需求和当前项目已绑定的 SOP 给出一个明确推荐，并告诉用户下一步怎么绑定或派发。
+用户问平台有哪些 SOP 或准备派发任务时，先用 workflows_list / workflows_get 核对可用模板及项目已绑定的流程。优先推荐需求开发（generic-requirement-development，调研、澄清与提纲 → 确认 → 技术方案 → 确认 → 前后端各自并行完成开发 Spec、实现和代码评审 → 自测联调 → 人工验收 → 交付）或缺陷修复（generic-defect-repair，复现 → 定位 → 最小修复 → 回归和验收）。需求开发涵盖前后端联合交付；手动发起可用「仅前端」「仅后端」预设，也可逐节点勾选本次运行范围。结合项目配置给出一个明确推荐。
 ` + assistantGeneralChatPrompt
 
 const assistantWorkflowDocumentPrompt = `修改已有 SOP 时先用 workflows_get 或 workflows_revision_get 读取完整定义再改。workflows_save 按 id 整图覆盖 nodes 和 edges，未提交的节点会被删除。`
@@ -1386,6 +1393,7 @@ type assistantCLIRequest struct {
 	Workspace                                      bool
 	Execute                                        func(context.Context, string, runtime.CommandSpec, runtime.RunCredentials, runtime.EventSink) (string, error)
 	RemoteBinary                                   bool
+	LocalLogin                                     bool
 	Prompt, Model, Effort, SessionID, SystemPrompt string
 	Executor                                       string
 	SessionRoot                                    string
@@ -1406,6 +1414,7 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		if execute := helperCLIExecution(ctx, req.SessionRoot); execute != nil {
 			req.Execute = execute
 			req.RemoteBinary = true
+			req.LocalLogin = ctx.Value(assistantHelperExecutionKey{}).(assistantHelperExecution).localLogin
 		}
 	}
 	engine, engineModel := assistantModelEngine(req.Model)
@@ -1464,6 +1473,9 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 		sessionID = newAssistantSessionID()
 	}
 	var inv assistantCLIInvocation
+	if engine != assistantEngineCodeBuddy && engineModel == "default" {
+		engineModel = ""
+	}
 	engineOpts := assistantEngineInvocationOpts{Bin: bin, Root: root, Config: config, Prompt: req.Prompt, Model: engineModel, Effort: req.Effort, SessionID: sessionID, Resume: req.Resume, SystemPrompt: req.SystemPrompt, ReviewOnly: req.ReviewOnly, Workspace: req.Workspace}
 	switch engine {
 	case assistantEngineClaude:
@@ -1589,9 +1601,12 @@ func runAssistantCLI(ctx context.Context, req assistantCLIRequest, user domain.U
 	if req.Resume && missingSession && !modelStarted && final == "" && ctx.Err() == nil {
 		return "", sessionID, errAssistantSessionMissing
 	}
-	if engine != assistantEngineCodeBuddy && ctx.Err() == nil && strings.TrimSpace(final) == "" &&
-		(credentialRejected || (streamError != nil && assistantAuthFailureText(streamError.Error()))) {
-		return "", sessionID, assistantCredentialError{engine: engine}
+	authRejected := credentialRejected || (streamError != nil && assistantAuthFailureText(streamError.Error()))
+	if req.LocalLogin && err != nil {
+		authRejected = authRejected || assistantLocalAuthFailureText(err.Error()) || assistantLocalAuthFailureText(strings.Join(stderrTail, "\n"))
+	}
+	if engine != assistantEngineCodeBuddy && ctx.Err() == nil && strings.TrimSpace(final) == "" && authRejected {
+		return "", sessionID, assistantCredentialError{engine: engine, localLogin: req.LocalLogin}
 	}
 	if credentialRejected && strings.TrimSpace(final) == "" && err == nil && ctx.Err() == nil {
 		return "", sessionID, errAssistantCredentialRejected

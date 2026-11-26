@@ -81,6 +81,12 @@ const RunnerVersionConversationWorkspace = "0.8.0"
 // queued CLI or block a following turn behind a previous background save.
 const RunnerVersionConversationCLI = "0.10.1"
 
+const RunnerVersionLocalConversationAuth = "0.10.2"
+
+func (r Runner) SupportsLocalConversationAuth() bool {
+	return versionAtLeast(r.RunnerVersion, RunnerVersionLocalConversationAuth)
+}
+
 func (r Runner) SupportsConversationCLI() bool {
 	return versionAtLeast(r.RunnerVersion, RunnerVersionConversationCLI)
 }
@@ -268,12 +274,23 @@ func (r Runner) SupportsProvider(provider string) bool {
 	return false
 }
 
+// RuntimeForcesPersonalAuth reports whether the provider must ignore legacy
+// runtime preferences because it only supports task-scoped credentials.
+func RuntimeForcesPersonalAuth(provider string) bool {
+	return IsAgentCLIKind(provider) && !strings.EqualFold(strings.TrimSpace(provider), "cursor")
+}
+
+func DefaultRuntimeAuthMode(provider string) string {
+	provider = strings.TrimSpace(provider)
+	if RuntimeForcesPersonalAuth(provider) || strings.EqualFold(provider, "cursor") || strings.EqualFold(provider, "codebuddy") {
+		return RuntimeAuthPersonal
+	}
+	return RuntimeAuthLocal
+}
+
 // RuntimeAuthMode returns the configured credential source for a provider.
-// CodeBuddy and the extra agent CLIs have no reusable local-login flow, so
-// they always use the responsible user's personal credential. Codex and
-// Claude Code default to local login.
 func (r Runner) RuntimeAuthMode(provider string) string {
-	if IsAgentCLIKind(provider) {
+	if RuntimeForcesPersonalAuth(provider) {
 		return RuntimeAuthPersonal
 	}
 	provider = strings.TrimSpace(provider)
@@ -288,10 +305,7 @@ func (r Runner) RuntimeAuthMode(provider string) string {
 			break
 		}
 	}
-	if strings.EqualFold(provider, "codebuddy") {
-		return RuntimeAuthPersonal
-	}
-	return RuntimeAuthLocal
+	return DefaultRuntimeAuthMode(provider)
 }
 
 const (
@@ -448,15 +462,17 @@ func publicRunnerRepository(repository RunnerRepository) RunnerRepository {
 // credentials are included only when the runtime selects personal credentials
 // and are scrubbed from durable storage when the task finishes.
 type RunnerInvocation struct {
-	ArchivedFiles   []WorkspaceArtifactFile `json:"archivedFiles,omitempty"`
-	RunID           string                  `json:"runId,omitempty"`
-	NodeID          string                  `json:"nodeId,omitempty"`
-	InvocationID    string                  `json:"invocationId,omitempty"`
-	ResumeSessionID string                  `json:"resumeSessionId,omitempty"`
-	GateResultPath  string                  `json:"gateResultPath,omitempty"`
-	Executor        ExecutorDefinition      `json:"executor"`
-	Agent           AgentDefinition         `json:"agent"`
-	Assets          AgentAssetBundle        `json:"assets"`
+	LocalSourcePath  string                  `json:"localSourcePath,omitempty"`
+	LocalSourcePaths []string                `json:"localSourcePaths,omitempty"`
+	ArchivedFiles    []WorkspaceArtifactFile `json:"archivedFiles,omitempty"`
+	RunID            string                  `json:"runId,omitempty"`
+	NodeID           string                  `json:"nodeId,omitempty"`
+	InvocationID     string                  `json:"invocationId,omitempty"`
+	ResumeSessionID  string                  `json:"resumeSessionId,omitempty"`
+	GateResultPath   string                  `json:"gateResultPath,omitempty"`
+	Executor         ExecutorDefinition      `json:"executor"`
+	Agent            AgentDefinition         `json:"agent"`
+	Assets           AgentAssetBundle        `json:"assets"`
 	// Artifacts are the node's artifact contracts: the runner uploads the
 	// content of each declared path when it completes, and the engine writes
 	// them into the run workspace so verification and handoff keep working.

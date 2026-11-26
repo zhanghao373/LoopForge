@@ -66,6 +66,7 @@ type Config struct {
 	// DefaultWorkspaceRoot is where per-task workspaces are created when a
 	// task does not carry its own absolute workspace path.
 	DefaultWorkspaceRoot string
+	LocalSourceRoots     []string
 	HeartbeatInterval    time.Duration
 	LongPollTimeout      time.Duration
 	DisableAutoUpdate    bool
@@ -713,13 +714,10 @@ func (d *Daemon) taskWorkspace(task domain.RunnerTask) string {
 // and verification gates.
 func (d *Daemon) executeTerminal(ctx context.Context, task domain.RunnerTask) execResult {
 	workspace := d.taskWorkspace(task)
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("workspace %s: %v", workspace, err)}
+	if err := d.checkoutInvocationWorkspace(ctx, workspace, task.Invocation); err != nil {
+		return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("repository checkout: %v", err)}
 	}
 	if task.Invocation != nil {
-		if err := checkoutInvocationRepositories(ctx, workspace, task.Invocation); err != nil {
-			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("repository checkout: %v", err)}
-		}
 		if err := writeRunnerHumanContext(workspace, task.Invocation.HumanContext); err != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("write human context: %v", err)}
 		}
@@ -728,6 +726,11 @@ func (d *Daemon) executeTerminal(ctx context.Context, task domain.RunnerTask) ex
 		}
 	}
 	command := runtime.CommandSpec{Argv: []string{"sh", "-lc", task.Command}, Provider: "script"}
+	if paths := invocationSourcePaths(task.Invocation); len(paths) > 1 {
+		command = runtime.WithCommandEnvironment(command, map[string]string{
+			"AGENTFLOW_LOCAL_SOURCE_DIRS": strings.Join(domain.LocalSourceDirectories(paths), "\n"),
+		})
+	}
 	var sandbox runtime.Sandbox
 	if task.Sandbox != nil {
 		var release func()
@@ -794,10 +797,7 @@ func (d *Daemon) mcpTarget(requireCredentials bool, gitTokens ...string) runtime
 func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) (execResult, map[string]string) {
 	inv := task.Invocation
 	workspace := d.taskWorkspace(task)
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("workspace %s: %v", workspace, err)}, nil
-	}
-	if err := checkoutInvocationRepositories(ctx, workspace, inv); err != nil {
+	if err := d.checkoutInvocationWorkspace(ctx, workspace, inv); err != nil {
 		return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("repository checkout: %v", err)}, nil
 	}
 	if err := writeRunnerHumanContext(workspace, inv.HumanContext); err != nil {
@@ -817,6 +817,9 @@ func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) 
 			return execResult{status: domain.RunnerTaskFailed, errMsg: fmt.Sprintf("create runner sandbox: %v", err)}, nil
 		}
 		defer release()
+		if actual, ok := sandbox.(interface{ Driver() string }); ok {
+			driver = actual.Driver()
+		}
 	}
 	target := d.mcpTarget(true, invocationGitToken(inv))
 	sshRepoCount := len(inv.GitSSHRemotes())
@@ -861,12 +864,24 @@ func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) 
 	if err != nil {
 		return execResult{status: domain.RunnerTaskFailed, errMsg: err.Error()}, nil
 	}
+	var cleanupLocalLogin func() error
 	if runtime.IsAgentCLI(prepared.Command.Provider) {
 		cred := runtime.ProviderCredential{APIKey: inv.AgentCLIAPIKey, BaseURL: inv.AgentCLIBaseURL, Protocol: inv.AgentCLIProtocol, Models: inv.AgentCLIModels}
 		var agentEnv map[string]string
-		argv, agentEnv, err = runtime.BindAgentCLICommand(sandbox, workspace, prepared.Command, cred, argv)
+		if prepared.Command.Provider == runtime.AgentCLICursor && inv.CredentialSource == domain.RuntimeAuthLocal {
+			argv, agentEnv, cleanupLocalLogin, err = runtime.BindRunnerCursorLogin(ctx, sandbox, workspace, prepared.Command, argv, cred.Models)
+		} else {
+			argv, agentEnv, err = runtime.BindAgentCLICommand(sandbox, workspace, prepared.Command, cred, argv)
+		}
 		if err != nil {
 			return execResult{status: domain.RunnerTaskFailed, errMsg: err.Error()}, nil
+		}
+		if cleanupLocalLogin != nil {
+			defer func() {
+				if cleanupLocalLogin != nil {
+					_ = cleanupLocalLogin()
+				}
+			}()
 		}
 		for key, value := range agentEnv {
 			credentialEnv[key] = value
@@ -926,6 +941,13 @@ func (d *Daemon) executeInvocation(ctx context.Context, task domain.RunnerTask) 
 		result = d.executeSandboxProcess(ctx, task, sandbox, command)
 	} else {
 		result = d.executeProcess(ctx, task, argv, commandEnv)
+	}
+	if cleanupLocalLogin != nil {
+		err := cleanupLocalLogin()
+		cleanupLocalLogin = nil
+		if err != nil {
+			return execResult{status: domain.RunnerTaskFailed, errMsg: "清理 Cursor 临时凭证失败"}, nil
+		}
 	}
 	result.outputs = collectTaskOutputs(workspace, inv)
 	if result.status != domain.RunnerTaskSuccess {
@@ -1382,7 +1404,7 @@ func (d *Daemon) defaultWorkspace(taskID string) string {
 }
 
 // runnerVersion is reported at registration; it matches the module build.
-var runnerVersion = "0.10.1"
+var runnerVersion = domain.RunnerVersionLocalConversationAuth
 
 // Version returns the runner build version reported at registration.
 func Version() string { return runnerVersion }

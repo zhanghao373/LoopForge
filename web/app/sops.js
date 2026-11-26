@@ -1,5 +1,5 @@
 function renderCatalogScopes(){
-  const workflows=state.data?.workflows||[],agents=state.data?.agents||[];
+  const workflows=(state.data?.workflows||[]).filter(w=>w.status!=='archived'),agents=state.data?.agents||[];
   const sopProject=workflows.filter(w=>!catalogGeneric(w)&&catalogOwned(w.projectId)).length;
   const sopShared=workflows.filter(w=>!catalogGeneric(w)&&catalogShared(w.projectId,w.shared)).length;
   const sopGeneric=workflows.filter(w=>catalogGeneric(w)).length;
@@ -83,7 +83,9 @@ function genericRequirementChips(w){
 // Agent nodes run with the executor credentials of the requirement owner; a
 // bound repository only matters for templates that check out project code.
 function sopRunRequirements(w){
-  const nodes=w?.nodes||[],user=userById(state.currentUser?.id)||{};
+  const personal=state.data?.capabilities?.personalExecutors;
+  const copy=personal&&catalogGeneric(w)?genericProjectCopy(w):null;
+  const nodes=copy?.nodes||w?.nodes||[],user=userById(state.currentUser?.id)||{};
   const project=(state.data?.projects||[]).find(p=>p.id===(w?.projectId||state.projectFilter))||(state.data?.projects||[]).find(p=>p.id===state.projectFilter);
   const driver=((state.data?.sandboxes||[]).find(sb=>sb.id===w?.sandboxProfileId)||{}).driver||(/docker/i.test(w?.sandboxProfileId||'')?'docker':'');
   const usesRepo=(catalogGeneric(w)||(w?.tags||[]).some(t=>String(t).startsWith('generic-source:')))&&!!project?.defaultRepositoryId;
@@ -91,12 +93,22 @@ function sopRunRequirements(w){
   const providers=new Set();
   for(const node of nodes.filter(n=>n.type==='agent')){
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
-    const id=role?.executorId||node.executorId||'codebuddy';
+    const id=node.executorOverrideId||role?.executorId||node.executorId||(w?.tags?.includes('selectable-nodes')?'codex':'codebuddy');
     const kind=(state.data?.executors||[]).find(e=>e.id===id)?.kind||id;
+    if(kind==='a2a')providers.add(kind);
     if(['codebuddy','codex','claude','claude-code','opencode','cursor','agy','kimi','pi','dsh','zcode'].includes(kind))providers.add(kind==='claude'?'claude-code':kind);
   }
   const agentLabels={opencode:'OpenCode',cursor:'Cursor CLI',agy:'Antigravity',kimi:'Kimi Code',pi:'Pi',dsh:'DeepSeek Harness',zcode:'ZCode'};
   for(const kind of providers){
+    if(personal&&kind==='codebuddy')continue;
+    if(kind==='a2a'){
+      rows.push({key:'run-a2a',label:'A2A Agent',ok:state.data?.executors?.some(e=>e.id==='a2a'),hint:'A2A 地址和凭据由平台配置。'});
+      continue;
+    }
+    if(kind==='codex'&&(personal||(w?.tags||[]).includes('personal-sop'))&&!user.codexApiKeyConfigured){
+      rows.push({key:'run-codex-runner',label:'Codex 执行机器',ok:!!state.defaultRunnerId,hint:'在设置中连接本机，选用本机 Codex 登录。'});
+      continue;
+    }
     const known={codebuddy:['CodeBuddy','codeBuddyApiKey','codeBuddyApiKeyConfigured'],codex:['Codex','codexApiKey','codexApiKeyConfigured'],'claude-code':['Claude Code','claudeCodeApiKey','claudeCodeApiKeyConfigured']}[kind];
     const [label,field,flag]=known||[agentLabels[kind]||kind,'agentCli.'+kind,'agentCliConfigured'];
     if(!known){
@@ -456,6 +468,24 @@ async function adoptGenericTemplate(){
 }
 function renderSOPCatalog(){
   renderCatalogScopes();
+  const configure=$('#configurePersonalSOPs'),personal=personalSOPs();
+  const launch=$('#launchSOP');
+  if(launch){
+    launch.hidden=!state.data?.capabilities?.personalExecutors;
+    launch.disabled=!runnableWorkflowOptions().some(w=>w.status==='published');
+    launch.onclick=()=>openRunModal();
+    launch.classList.toggle('primary',!launch.hidden);
+    launch.classList.toggle('ghost',launch.hidden);
+    $('#newSOP')?.classList.toggle('primary',launch.hidden);
+    $('#newSOP')?.classList.toggle('ghost',!launch.hidden);
+  }
+  if(configure){
+    configure.hidden=!personal.length;
+    configure.onclick=async ()=>{
+      const id=personal.find(w=>w.id===state.workflow?.id)?.id||personal[0]?.id;
+      if(id&&(id===state.workflow?.id||await switchFlowWorkflow(id)))switchView('flow');
+    };
+  }
   let workflows=scopedWorkflows();
   const metrics=new Map((state.data.workflowMetrics||[]).map(m=>[m.workflowId,m]));
   const live=liveRuns();

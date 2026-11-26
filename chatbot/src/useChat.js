@@ -100,6 +100,8 @@ export function useChat() {
     [effort, setEffort] = useState(""),
     [sponsoredModels, setSponsoredModels] = useState([]),
     [executor, setExecutorState] = useState(storedExecutor),
+    [executors, setExecutors] = useState(EXECUTORS),
+    [localMode, setLocalMode] = useState(false),
     [providerCatalogs, setProviderCatalogs] = useState({}),
     [generation, setGeneration] = useState(null),
     [stopRequest, setStopRequest] = useState(null),
@@ -181,7 +183,8 @@ export function useChat() {
       // A new conversation starts on the platform default, not on whatever
       // model the previously opened conversation used.
       if (!id) {
-        const preferred = storedExecutor();
+        const saved = storedExecutor();
+        const preferred = executors.some((item) => item.id === saved) ? saved : executors[0].id;
         setExecutorState(preferred);
         const next = engineModels(models, preferred);
         if (preferred === "codebuddy") setModel(defaultModel.current || next[0]?.id || "");
@@ -194,7 +197,7 @@ export function useChat() {
       if (id) setRevealId(id);
       changeURL(id);
     },
-    [changeURL, models, executionMachines.resetMachine],
+    [changeURL, executors, models, executionMachines.resetMachine],
   );
   const newChat = useCallback(() => {
     setDraftIssueId("");
@@ -221,7 +224,17 @@ export function useChat() {
         setModels(catalog.models || []);
         defaultModel.current = catalog.default || "";
         setSponsoredModels(sponsoredModelList(catalog));
-        setModel(catalog.default);
+        setLocalMode(!!catalog.personalExecutors);
+        if (catalog.personalExecutors) {
+          const choices = EXECUTORS.filter((item) => catalog.engines.some((engine) => engine.id === item.id));
+          const saved = storedExecutor();
+          const preferred = choices.some((item) => item.id === saved) ? saved : choices[0].id;
+          setExecutors(choices);
+          setExecutorState(preferred);
+          setModel(engineModels(catalog.models, preferred)[0]?.id || catalog.default);
+        } else {
+          setModel(catalog.default);
+        }
         await refreshSessions();
         if (!current) return;
         const recovered = connectionError;
@@ -536,7 +549,7 @@ export function useChat() {
   const activeModel = sponsored ? sharedModelFor(model) : model;
   const activeEffort = modelEffort(executorModels.find((m) => m.id === activeModel), effort);
   useEffect(() => {
-    if (codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
+    if (!ready || !executors.some((item) => item.id === executor) || codeBuddy || listedForEngine.length || providerCatalogs[executor]) return;
     let current = true;
     api(`/api/assistant/models?executor=${encodeURIComponent(executor)}`)
       .then((catalog) => {
@@ -548,11 +561,11 @@ export function useChat() {
     return () => {
       current = false;
     };
-  }, [codeBuddy, executor, listedForEngine.length, providerCatalogs]);
+  }, [codeBuddy, executor, executors, listedForEngine.length, providerCatalogs, ready]);
   const chooseExecutor = useCallback(
     (id) => {
       if (id === "claude") id = "claude-code";
-      if (!EXECUTORS.some((item) => item.id === id) || id === executor) return;
+      if (!executors.some((item) => item.id === id) || id === executor) return;
       const locked = conversationEngine(sessionRef.current?.messages, models, sessionRef.current?.executor);
       try {
         localStorage.setItem(EXECUTOR_KEY, id);
@@ -564,7 +577,7 @@ export function useChat() {
       setModel(next[0]?.id || catalog?.default || (id === "codebuddy" ? defaultModel.current : "default"));
       if (locked && locked !== id) open(null);
     },
-    [executor, models, open, providerCatalogs],
+    [executor, executors, models, open, providerCatalogs],
   );
   const chooseModel = useCallback(
     (id) => {
@@ -1245,7 +1258,8 @@ export function useChat() {
     selectSandbox,
     models: executorModels,
     executor,
-    executors: EXECUTORS,
+    executors,
+    localMode,
     setExecutor: chooseExecutor,
     sessions,
     session,

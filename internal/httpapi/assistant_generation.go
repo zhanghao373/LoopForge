@@ -34,14 +34,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		return
 	}
 	req.Model = assistantRequestModel(req.Executor, req.Model)
-	user, model, refusal := h.assistantTurnUser(stored, req.Model)
-	if refusal != "" {
-		c.JSON(400, gin.H{"error": refusal})
-		return
-	}
-	req.Model = model
-	cliEngine, _ := assistantModelEngine(req.Model)
-	req.Executor = cliEngine
+	user := stored
 	if len(req.Messages) == 0 || req.Messages[len(req.Messages)-1].Role != "user" {
 		c.JSON(400, gin.H{"error": "请提供用户消息"})
 		return
@@ -92,13 +85,39 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
 	}
+	old, _ := h.repo.AssistantSession(ownerID, req.SessionID)
+	if old.ID != "" && old.ExecutionLocked() {
+		if req.ExecutionTarget != nil && *req.ExecutionTarget != old.Execution() {
+			c.JSON(409, gin.H{"error": "会话执行机器已固定，不能更换"})
+			return
+		}
+		req.ExecutionTarget = old.ExecutionTarget
+	} else {
+		var targetErr error
+		req.ExecutionTarget, targetErr = h.newExecutionTarget(user.ID, req.ProjectID, draftExecutionTarget(old, req.ExecutionTarget))
+		if targetErr != nil {
+			c.JSON(400, gin.H{"error": targetErr.Error()})
+			return
+		}
+	}
+	localLogin, authErr := h.assistantLocalLogin(user.ID, req.ExecutionTarget, req.Model)
+	if authErr != nil {
+		c.JSON(400, gin.H{"error": authErr.Error()})
+		return
+	}
+	user, model, refusal := h.assistantTurnUser(stored, req.Model, localLogin)
+	if refusal != "" {
+		c.JSON(400, gin.H{"error": refusal})
+		return
+	}
+	req.Model = model
 	catalogEngine, _ := assistantModelEngine(req.Model)
 	catalog := assistantChatCatalog(c.Request.Context(), user.CodeBuddyInternetEnvironment, nil)
 	if catalogEngine == assistantEngineCodeBuddy {
 		catalog = h.chatCatalog(c.Request.Context(), user)
 	}
-	req.Model = assistantAllowedUserModel(req.Model, catalog, user)
-	cliEngine, _ = assistantModelEngine(req.Model)
+	req.Model = assistantAllowedUserModel(req.Model, catalog, user, localLogin)
+	cliEngine, _ := assistantModelEngine(req.Model)
 	req.Executor = cliEngine
 	if err := validateAssistantEffort(user, req.Model, req.Effort); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -128,21 +147,6 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 				c.JSON(409, gin.H{"error": "会话已更新，请重新打开后发送"})
 				return
 			}
-		}
-	}
-	old, _ := h.repo.AssistantSession(ownerID, req.SessionID)
-	if old.ID != "" && old.ExecutionLocked() {
-		if req.ExecutionTarget != nil && *req.ExecutionTarget != old.Execution() {
-			c.JSON(409, gin.H{"error": "会话执行机器已固定，不能更换"})
-			return
-		}
-		req.ExecutionTarget = old.ExecutionTarget
-	} else {
-		var targetErr error
-		req.ExecutionTarget, targetErr = h.newExecutionTarget(user.ID, req.ProjectID, draftExecutionTarget(old, req.ExecutionTarget))
-		if targetErr != nil {
-			c.JSON(400, gin.H{"error": targetErr.Error()})
-			return
 		}
 	}
 	// Every message shows when it was sent. The server clock stamps the new
@@ -192,7 +196,7 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 	// lifetime of the browser request. Only explicit cancellation stops a turn.
 	parent := context.WithValue(context.WithoutCancel(c.Request.Context()), assistantFreshCLIKey{}, freshCLI)
 	_, sharedModels, _ := h.assistantChatUser(stored)
-	h.scheduleAssistantTitle(h.helperExecutionContext(parent, ownerID, req.ExecutionTarget), ownerID, user, old, req.SessionID, req.Messages, req.Model, sharedModels)
+	h.scheduleAssistantTitle(h.helperExecutionContext(parent, ownerID, req.ExecutionTarget, localLogin), ownerID, user, old, req.SessionID, req.Messages, req.Model, sharedModels)
 	done := inflightTasks.Add()
 	go func() {
 		defer done()
@@ -461,12 +465,7 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
 		return
 	}
-	user, sharedModels, ok := h.assistantChatUser(stored)
-	if !ok {
-		c.JSON(400, gin.H{"error": "请先配置个人 CodeBuddy API Key"})
-		return
-	}
-	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", user.ID)
+	ownerID, _, err := h.conversationScope(c, c.Param("id"), "", "", stored.ID)
 	if err != nil {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
@@ -497,16 +496,22 @@ func (h *assistantHandlers) steerGeneration(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "会话不存在"})
 		return
 	}
-	model := body.Model
-	if sharedModels != nil {
-		forced, allowed := assistantSponsoredModelFor(sharedModels, model)
-		if !allowed {
-			c.JSON(400, gin.H{"error": errAssistantSponsoredModel(sharedModels)})
-			return
-		}
-		model = forced
+	model := assistantRequestModel(session.Executor, firstNonEmpty(body.Model, session.Model))
+	localLogin, authErr := h.assistantLocalLogin(stored.ID, session.ExecutionTarget, model)
+	if authErr != nil {
+		c.JSON(400, gin.H{"error": authErr.Error()})
+		return
 	}
-	model = assistantAllowedModel(model, h.chatCatalog(c.Request.Context(), user))
+	user, model, refusal := h.assistantTurnUser(stored, model, localLogin)
+	if refusal != "" {
+		c.JSON(400, gin.H{"error": refusal})
+		return
+	}
+	if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(session.Messages, session.Executor), model); refusal != "" {
+		c.JSON(409, gin.H{"error": refusal})
+		return
+	}
+	model = assistantAllowedUserModel(model, h.chatCatalog(c.Request.Context(), user), user, localLogin)
 	if err := validateAssistantEffort(user, model, body.Effort); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return

@@ -478,7 +478,7 @@ export default function App() {
       id: "new-project",
       label: "新建项目",
       icon: "plus",
-      onSelect: () => setQuickAccessOpen(true),
+      onSelect: () => chat.localMode ? navigate("projects") : setQuickAccessOpen(true),
     },
   ];
   function chooseProject(id) {
@@ -1781,7 +1781,7 @@ export default function App() {
             {chat.error && !(chat.generation?.failure && chat.error === chat.generation.error) ? (
               <div role="alert" className="chat-error">
                 <span>{chat.error}</span>
-                <CredentialAction text={chat.error} />
+                <CredentialAction text={chat.error} personalExecutors={chat.localMode} />
                 <CLIInstallAction text={chat.error} onResult={chat.adoptCLIInstall} />
                 <IconButton label="关闭提示" onClick={() => chat.setError("")}>
                   <HarnessIcon name="close" size={15} />
@@ -1789,12 +1789,13 @@ export default function App() {
               </div>
             ) : null}
             {chat.ready &&
-            !chat.local &&
+            !chat.localMode &&
             chat.user &&
             !chat.user.isGuest &&
             !chat.user.codeBuddyApiKeyConfigured &&
             !chat.sponsoredModel &&
             chat.executor === "codebuddy" &&
+            chat.executors.some((item) => item.id === "codebuddy") &&
             !chat.readOnly &&
             credentialHint(chat.error)?.field !== "codeBuddyApiKey" ? (
               <div className="credential-notice" role="status">
@@ -2212,7 +2213,7 @@ export default function App() {
         {!chat.activeId && !chat.readOnly ? (
           <section className="home-starters" aria-label="可以这样开始">
             <div className="home-starter-grid">
-              {homeStarters.map((starter, index) => (
+              {homeStarters.filter((starter) => starter.id !== "quick-access" || (chat.ready && !chat.localMode)).map((starter, index) => (
                 <button
                   type="button"
                   className={`home-starter home-starter-${starter.tone}`}
@@ -2484,7 +2485,7 @@ export default function App() {
         />
       ) : null}
       <QuickAccessWizard
-        open={quickAccessOpen}
+        open={quickAccessOpen && chat.ready && !chat.localMode}
         user={chat.user}
         projects={chat.projects}
         projectId={chat.projectId}

@@ -1,12 +1,15 @@
 package runtime
 
 import (
-	"agentflow/internal/observability"
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"agentflow/internal/domain"
+	"agentflow/internal/observability"
 )
 
 func upsertEnv(env []string, key, value string) []string {
@@ -232,34 +235,60 @@ func AgentCLIPrivateHomeKey(kind, agentID string) string {
 // the environment (HOME and TMPDIR included) to run it with. Agent CLIs always
 // run in that HOME, sandboxed or not, because their MCP configuration is there.
 func BindAgentCLICommand(sandbox Sandbox, workspace string, command CommandSpec, cred ProviderCredential, argv []string) ([]string, map[string]string, error) {
-	name := PrivateHomeName(command)
-	_, homeEnv := privateHomePaths(sandbox, workspace, command)
-	// Every level is Lstat-checked: the workspace is writable from the sandbox,
-	// so .agentflow, private-home or the home itself may have become a symlink.
-	if _, err := EnsureControlDirectory(workspace, "private-home", name); err != nil {
-		return nil, nil, fmt.Errorf("create private home: %w", err)
-	}
-	tmp, err := EnsureControlDirectory(workspace, "tmp", name)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create private temp: %w", err)
-	}
-	argv, bound, err := ApplyAgentCLICredential(command.Provider, cred, command.AgentCLI, WorkspaceAgentCLIHome(workspace, name), homeEnv, argv)
+	home, env, err := runnerAgentCLIHome(sandbox, workspace, command)
 	if err != nil {
 		return nil, nil, err
 	}
-	env := map[string]string{}
-	for _, key := range agentCLIHostEnv {
-		env[key] = ""
+	argv, bound, err := ApplyAgentCLICredential(command.Provider, cred, command.AgentCLI, home, env["HOME"], argv)
+	if err != nil {
+		return nil, nil, err
 	}
 	for key, value := range bound {
 		env[key] = value
 	}
-	env["HOME"] = homeEnv
-	env["TMPDIR"] = tmp
+	return argv, env, nil
+}
+
+func BindRunnerCursorLogin(ctx context.Context, sandbox Sandbox, workspace string, command CommandSpec, argv []string, models []domain.CLIModel) ([]string, map[string]string, func() error, error) {
+	home, env, err := runnerAgentCLIHome(sandbox, workspace, command)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	fileAuth, cleanup, err := StageRunnerLocalLogin(ctx, AgentCLICursor, sandboxDriver(sandbox), home)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for key, value := range cursorLoginEnvironment(env["HOME"], fileAuth) {
+		env[key] = value
+	}
+	if model := command.AgentCLI.Model; model != "" {
+		argv = withCursorModelArg(argv, CursorModelID(model, command.AgentCLI.Effort, models))
+	}
+	return argv, env, cleanup, nil
+}
+
+func runnerAgentCLIHome(sandbox Sandbox, workspace string, command CommandSpec) (AgentCLIHome, map[string]string, error) {
+	name := PrivateHomeName(command)
+	_, homeEnv := privateHomePaths(sandbox, workspace, command)
+	// The workspace can replace private-home or its parents with symlinks.
+	if _, err := EnsureControlDirectory(workspace, "private-home", name); err != nil {
+		return AgentCLIHome{}, nil, fmt.Errorf("create private home: %w", err)
+	}
+	tmp, err := EnsureControlDirectory(workspace, "tmp", name)
+	if err != nil {
+		return AgentCLIHome{}, nil, fmt.Errorf("create private temp: %w", err)
+	}
+	env := map[string]string{"HOME": homeEnv, "TMPDIR": tmp}
+	for _, key := range agentCLIHostEnv {
+		env[key] = ""
+	}
+	if command.Provider == AgentCLICursor {
+		env["CURSOR_CONFIG_DIR"] = filepath.Join(homeEnv, ".cursor")
+	}
 	if sandboxDriver(sandbox) == "docker" {
 		env["TMPDIR"] = filepath.ToSlash(filepath.Join("/workspace", ".agentflow", "tmp", name))
 	}
-	return argv, env, nil
+	return WorkspaceAgentCLIHome(workspace, name), env, nil
 }
 
 // privateHomePaths returns a PrivateHome command's HOME on the host and as

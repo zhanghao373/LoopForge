@@ -54,6 +54,10 @@ func (e *Engine) StartWithRepositoriesContext(workflowID, input string, reposito
 	return e.startWorkflow(workflowID, input, repositories, executionContext, false)
 }
 
+func (e *Engine) StartSelectedSOP(wf domain.WorkflowDefinition, input string, repositories []domain.RepositoryContext, executionContext domain.TelemetryContext) (domain.Run, error) {
+	return e.startWorkflowDefinition(wf, input, repositories, executionContext, false)
+}
+
 func (e *Engine) startWorkflow(workflowID, input string, repositories []domain.RepositoryContext, executionContext domain.TelemetryContext, workspace bool) (domain.Run, error) {
 	wf, ok := e.repo.Workflow(workflowID)
 	if !ok {
@@ -67,6 +71,9 @@ func (e *Engine) startWorkflow(workflowID, input string, repositories []domain.R
 func (e *Engine) startWorkflowDefinition(wf domain.WorkflowDefinition, input string, repositories []domain.RepositoryContext, executionContext domain.TelemetryContext, workspace bool) (domain.Run, error) {
 	workflowID := wf.ID
 	repositories = normalizeRepositories(repositories)
+	if wf.RequiresSourceCode() && len(repositories) == 0 && len(domain.LocalSourceSelection(executionContext.LocalSourcePath, executionContext.LocalSourcePaths)) == 0 {
+		return domain.Run{}, fmt.Errorf("此 SOP 需要本机目录或 Git 仓库")
+	}
 	domain.AssignRepositoryDirs(repositories)
 	e.mu.Lock()
 	draining, executeRuns := e.draining, e.executeRuns
@@ -96,6 +103,13 @@ func (e *Engine) startWorkflowDefinition(wf domain.WorkflowDefinition, input str
 	}
 	if err := validate(wf); err != nil {
 		return domain.Run{}, err
+	}
+	wf.VerifierSnapshots, err = e.repo.WorkflowVerifiers(wf, nil)
+	if err != nil {
+		return domain.Run{}, err
+	}
+	if len(wf.VerifierSnapshots) != 0 && executionContext.ProjectID != "" && executionContext.ProjectID != wf.ProjectID {
+		return domain.Run{}, fmt.Errorf("引用 Verifier 的 SOP 只能在所属项目中运行")
 	}
 	profile, ok := e.repo.Sandbox(wf.SandboxProfileID)
 	if !ok {

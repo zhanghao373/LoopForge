@@ -13,6 +13,7 @@ import (
 	"agentflow/internal/domain"
 	"agentflow/internal/gitwork"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -784,8 +785,27 @@ func (h *catalogHandlers) workflowNamesReferencingSandbox(id string) []string {
 }
 
 func (h *catalogHandlers) executors(c *gin.Context) {
-	c.JSON(200, repo.BuiltInExecutors())
+	c.JSON(200, sopExecutors(h.engine != nil && h.engine.A2AEnabled()))
 }
+
+func sopExecutors(a2aEnabled bool) []domain.ExecutorDefinition {
+	executors := repo.BuiltInExecutors()
+	if runtime.PersonalExecutorsOnly() {
+		filtered := make([]domain.ExecutorDefinition, 0, 3)
+		for _, executor := range executors {
+			if runtime.IsPersonalExecutor(executor.ID) {
+				filtered = append(filtered, executor)
+			}
+		}
+		return filtered
+	}
+	if a2aEnabled {
+		remote, _ := repo.SOPExecutor(domain.A2AExecutorID)
+		executors = append(executors, remote)
+	}
+	return executors
+}
+
 func (h *catalogHandlers) dockerfiles(c *gin.Context) {
 	if c.Request.Method == http.MethodGet {
 		items := h.repo.Dockerfiles()
@@ -1047,6 +1067,17 @@ func (h *catalogHandlers) workflows(c *gin.Context) {
 			if err := domain.ValidateWorkflowMetricStages(v); err != nil {
 				c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
+			}
+			for i := range v.Nodes {
+				node := &v.Nodes[i]
+				node.ExecutorOverrideID = strings.TrimSpace(node.ExecutorOverrideID)
+				if node.ExecutorOverrideID == "" {
+					continue
+				}
+				if _, ok := repo.SOPExecutor(node.ExecutorOverrideID); !ok || node.Type != "agent" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "节点「" + node.Name + "」的执行器配置无效"})
+					return
+				}
 			}
 			if _, generic := h.repo.GenericTemplateByWorkflow(v.ID); generic {
 				if !h.isPlatformAdmin(c.Request) {

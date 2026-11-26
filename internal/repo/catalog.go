@@ -523,6 +523,7 @@ func (r *CatalogRepo) putWorkflow(v domain.WorkflowDefinition, publishing bool) 
 		return err
 	}
 	v = normalizeWorkflowDefinition(v)
+	v.VerifierSnapshots = nil
 	if strings.TrimSpace(v.SandboxProfileID) == "" {
 		v.SandboxProfileID = "local"
 	}
@@ -552,6 +553,9 @@ func (r *CatalogRepo) putWorkflow(v domain.WorkflowDefinition, publishing bool) 
 		if v.Version == 0 {
 			v.Version = 1
 		}
+	}
+	if _, err := r.WorkflowVerifiers(v, nil); err != nil {
+		return err
 	}
 	if err := r.validateWorkflowNotifications(v); err != nil {
 		return err
@@ -872,6 +876,9 @@ func bindDefaultWorkflow(v *domain.Issue, projectWorkflowID, projectIssueWorkflo
 		}
 	} else if wf := strings.TrimSpace(projectIssueWorkflowID); wf != "" {
 		v.WorkflowID = wf
+		return
+	} else if strings.TrimSpace(projectWorkflowID) == GenericRequirementDevelopmentWorkflowID {
+		v.WorkflowID = GenericDefectRepairWorkflowID
 		return
 	} else if wf := strings.TrimSpace(projectWorkflowID); wf != "" && isGenericWorkflowID(wf) {
 		// Projects defaulting to a built-in generic template (e.g. the

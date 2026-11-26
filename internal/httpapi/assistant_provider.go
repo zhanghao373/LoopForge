@@ -26,6 +26,9 @@ func assistantExecutor(id string) string {
 
 func validateAssistantProvider(req *assistantRequest, user domain.User) error {
 	req.Executor = assistantExecutor(req.Executor)
+	if runtime.PersonalExecutorsOnly() && !runtime.IsPersonalExecutor(req.Executor) {
+		return fmt.Errorf("请选择 Codex、Cursor 或 Claude Code")
+	}
 	var key, label string
 	switch req.Executor {
 	case "codebuddy":

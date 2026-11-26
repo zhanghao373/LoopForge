@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"agentflow/internal/domain"
 	"agentflow/internal/runeval"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,6 +22,7 @@ import (
 const (
 	runEvalTimeout     = 10 * time.Minute
 	runEvalMaxInflight = 2
+	runEvalMaxFeedback = 2000
 )
 
 type runEvalExecFunc func(ctx context.Context, rec domain.RunEvalRecord, run domain.Run, user domain.User, emit func(string, any)) (domain.RunEvalResult, error)
@@ -41,9 +45,10 @@ type runEvalJob struct {
 }
 
 type runEvalHub struct {
-	mu     sync.Mutex
-	jobs   map[string]*runEvalJob
-	tokens chan struct{}
+	startMu sync.Mutex
+	mu      sync.Mutex
+	jobs    map[string]*runEvalJob
+	tokens  chan struct{}
 }
 
 var (
@@ -94,12 +99,51 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		return
 	}
 	user, ok := h.repo.User(current.ID)
-	if !ok || strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "请先在个人配置中配置自己的 CodeBuddy API Key"})
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "评测账号不存在"})
 		return
 	}
+	var req struct {
+		Model    string `json:"model"`
+		Feedback string `json:"feedback"`
+	}
+	if c.Request.ContentLength != 0 && !decode(c, &req) {
+		return
+	}
+	feedback := strings.TrimSpace(req.Feedback)
+	if utf8.RuneCountInString(feedback) > runEvalMaxFeedback {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("评测反馈最多 %d 个字", runEvalMaxFeedback)})
+		return
+	}
+	model := strings.TrimSpace(req.Model)
+	runnerID := ""
+	if runtime.PersonalExecutorsOnly() {
+		model = firstNonEmpty(model, "codex:default")
+		engine, modelID := assistantModelEngine(model)
+		if engine != assistantEngineCodex || !assistantValidEngineModel(modelID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "本地运行评测需要有效的 Codex 模型"})
+			return
+		}
+		runnerID = h.repo.DefaultRunner(user.ID)
+		if _, err := h.runEvalRunnerLogin(runnerID, user); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		if strings.TrimSpace(user.CodeBuddyAPIKey) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请先在个人配置中配置自己的 CodeBuddy API Key"})
+			return
+		}
+		if engine, _ := assistantModelEngine(model); engine != assistantEngineCodeBuddy {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "运行评测目前只支持 CodeBuddy 模型，请改选 CodeBuddy 模型"})
+			return
+		}
+		model = assistantAllowedModel(model, loadAssistantModels(c.Request.Context(), user.CodeBuddyInternetEnvironment))
+	}
+	hub := h.evalHub()
+	hub.startMu.Lock()
+	defer hub.startMu.Unlock()
 	if rec, busy := h.repo.ActiveRunEval(id); busy {
-		hub := h.evalHub()
 		hub.mu.Lock()
 		job := hub.jobs[id]
 		hub.mu.Unlock()
@@ -110,26 +154,14 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		// The row was saved as running, then startup failed before a job existed.
 		h.failRunEval(rec, "上次评测没有真正启动")
 	}
-	var req struct {
-		Model string `json:"model"`
-	}
-	if c.Request.ContentLength > 0 && !decode(c, &req) {
-		return
-	}
-	// Run evals run on CodeBuddy only: refuse a "codex:…" id instead of
-	// silently evaluating with the CodeBuddy default.
-	if engine, _ := assistantModelEngine(req.Model); engine != assistantEngineCodeBuddy {
-		c.JSON(http.StatusBadRequest, map[string]string{"error": "运行评测目前只支持 CodeBuddy 模型，请改选 CodeBuddy 模型"})
-		return
-	}
-	catalog := loadAssistantModels(c.Request.Context(), user.CodeBuddyInternetEnvironment)
-	model := assistantAllowedModel(req.Model, catalog)
 	project, _ := h.repo.Project(run.ExecutionContext.ProjectID)
 	rec := domain.RunEvalRecord{
 		ID:        "eval-" + randomID(),
 		RunID:     id,
 		Status:    domain.RunEvalRunning,
 		Model:     model,
+		RunnerID:  runnerID,
+		Feedback:  redactAgentToolResult(feedback, user),
 		Policy:    domain.EffectiveRunEvalPolicy(project.RunEval),
 		CreatedBy: user.ID,
 		CreatedAt: time.Now().UTC(),
@@ -140,6 +172,20 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 	}
 	h.launchRunEval(rec, run, user)
 	c.JSON(http.StatusAccepted, rec)
+}
+
+func (h *runsHandlers) runEvalRunnerLogin(runnerID string, user domain.User) (bool, error) {
+	runner, ok := h.repo.Runner(runnerID)
+	if !ok || runner.OwnerUserID != user.ID {
+		return false, fmt.Errorf("请先在设置 → 执行机器中接入自己的 Codex 执行机器并设为默认")
+	}
+	if runner.Status != domain.RunnerStatusOnline {
+		return false, fmt.Errorf("默认执行机器「%s」当前离线", runner.Name)
+	}
+	if h.assistant == nil || h.assistant.runnerControls == nil {
+		return false, fmt.Errorf("当前服务无法连接执行机器")
+	}
+	return verifierRunnerLogin(runner, user, assistantEngineCodex, true)
 }
 
 func (h *runsHandlers) getRunEval(c *gin.Context) {
@@ -193,11 +239,19 @@ func (h *runsHandlers) streamRunEval(c *gin.Context) {
 	c.Status(http.StatusOK)
 	for _, ev := range replay {
 		writeSSE(c, ev.Type, ev.Payload)
+		if ev.Type == "done" || ev.Type == "error" {
+			return
+		}
 	}
 	notify := c.Request.Context().Done()
 	for {
 		select {
 		case <-notify:
+			return
+		case <-job.done:
+			if rec, ok := h.repo.RunEval(job.evalID); ok {
+				writeSSE(c, "done", rec)
+			}
 			return
 		case ev, ok := <-ch:
 			if !ok {
@@ -300,7 +354,11 @@ func (h *runsHandlers) applyOneRecommendation(run domain.Run, projectID string, 
 	action := domain.NormalizeRunEvalAction(rec.Target, rec.Action)
 	switch {
 	case strings.HasPrefix(action, "workflow."):
-		wf, err := h.ensureProjectWorkflow(run, projectID, firstNonEmpty(rec.TargetID, run.WorkflowID))
+		workflowID := firstNonEmpty(rec.TargetID, run.WorkflowID, run.WorkflowSnapshot.ID)
+		if workflowID != run.WorkflowID && workflowID != run.WorkflowSnapshot.ID {
+			return rec, fmt.Errorf("评测建议的目标必须是本次运行的 SOP")
+		}
+		wf, err := h.ensureProjectWorkflow(run, projectID, workflowID)
 		if err != nil {
 			return rec, err
 		}
@@ -314,6 +372,16 @@ func (h *runsHandlers) applyOneRecommendation(run domain.Run, projectID string, 
 		return rec, nil
 	case strings.HasPrefix(action, "agent."):
 		agentID := firstNonEmpty(rec.TargetID, agentIDFromRun(run, rec.NodeID))
+		usedByRun := false
+		for _, node := range run.WorkflowSnapshot.Nodes {
+			if agentID != "" && node.AgentID == agentID {
+				usedByRun = true
+				break
+			}
+		}
+		if !usedByRun {
+			return rec, fmt.Errorf("评测建议的目标必须是本次运行使用的角色")
+		}
 		agent, err := h.ensureProjectAgent(run, projectID, agentID)
 		if err != nil {
 			return rec, err
@@ -428,7 +496,10 @@ func (h *runsHandlers) launchRunEval(rec domain.RunEvalRecord, run domain.Run, u
 	}
 	hub.jobs[rec.RunID] = job
 	hub.mu.Unlock()
-	go h.runEvalJob(ctx, job, rec, run, user)
+	go func() {
+		defer cancel()
+		h.runEvalJob(ctx, job, rec, run, user)
+	}()
 }
 
 func (h *runsHandlers) runEvalJob(ctx context.Context, job *runEvalJob, rec domain.RunEvalRecord, run domain.Run, user domain.User) {
@@ -485,20 +556,38 @@ func (h *runsHandlers) executeRunEval(ctx context.Context, rec domain.RunEvalRec
 	facts := runeval.BuildFacts(run, catalog)
 	rec.Facts = facts
 	_ = h.repo.PutRunEval(rec)
-	emit("thought", map[string]string{"kind": "thinking", "text": "正在用 " + rec.Model + " 评测…"})
-	system, prompt := runeval.BuildPrompt(rec.Policy, facts)
-	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID}, user, func(ev assistantStreamEvent) {
+	if emit != nil {
+		emit("thought", map[string]string{"kind": "thinking", "text": "正在用 " + rec.Model + " 评测…"})
+	}
+	if rec.RunnerID != "" {
+		localLogin, err := h.runEvalRunnerLogin(rec.RunnerID, user)
+		if err != nil {
+			return domain.RunEvalResult{}, err
+		}
+		ctx = h.assistant.helperExecutionContext(ctx, user.ID, &domain.AssistantExecutionTarget{RunnerID: rec.RunnerID}, localLogin)
+	}
+	root, err := os.MkdirTemp("", "loopforge-run-eval-")
+	if err != nil {
+		return domain.RunEvalResult{}, err
+	}
+	defer os.RemoveAll(root)
+
+	system, prompt := runeval.BuildPrompt(rec.Policy, facts, rec.Feedback)
+	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{
+		Prompt: redactAgentToolResult(prompt, user), Model: rec.Model, SystemPrompt: system,
+		UserID: user.ID, SessionRoot: root, ReviewOnly: true,
+	}, user, func(ev assistantStreamEvent) {
 		if emit == nil {
 			return
 		}
-		if text := strings.TrimSpace(ev.Text); text != "" {
+		if text := redactAgentToolResult(ev.Text, user); text != "" {
 			emit("thought", map[string]string{"kind": ev.Kind, "text": text})
 		}
 	})
 	if err != nil {
-		return domain.RunEvalResult{}, err
+		return domain.RunEvalResult{}, fmt.Errorf("评测调用失败：%s", redactAgentToolResult(err.Error(), user))
 	}
-	result, err := runeval.ParseModelResult(raw, rec.Policy)
+	result, err := runeval.ParseModelResult(redactAssistantSecrets(raw, user), rec.Policy)
 	if err != nil {
 		return domain.RunEvalResult{}, err
 	}

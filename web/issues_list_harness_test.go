@@ -33,13 +33,13 @@ func TestIssueHeadingMenuKeepsLegacyControls(t *testing.T) {
 	}
 	menu := actions[menuStart:]
 	menu = menu[:strings.Index(menu, "</div>")]
-	for _, want := range []string{`role="menu"`, `id="openSyncModal"`, `id="syncBadge"`, `id="importGitHubIssues"`, `id="importTAPDIssue"`} {
+	for _, want := range []string{`role="menu"`, `id="openSyncModal"`, `id="syncBadge"`, `id="importGitHubIssues"`, `id="importLinearIssues"`, `id="importTAPDIssue"`} {
 		if !strings.Contains(menu, want) {
 			t.Fatalf("#issueHeadingMenu is missing %s", want)
 		}
 	}
-	if got := strings.Count(menu, `role="menuitem"`); got != 3 {
-		t.Fatalf("#issueHeadingMenu should hold 3 menu items, got %d", got)
+	if got := strings.Count(menu, `role="menuitem"`); got != 4 {
+		t.Fatalf("#issueHeadingMenu should hold 4 menu items, got %d", got)
 	}
 	if !regexp.MustCompile(`id="importTAPDIssue"[^>]*data-legacy-tracker hidden`).MatchString(menu) {
 		t.Fatal("the TAPD import item must stay hidden behind the legacy tracker flag")
@@ -141,7 +141,7 @@ func TestIssueSourceFilterOffersPlatformOption(t *testing.T) {
 	}
 	sel := page[start:]
 	sel = sel[:strings.Index(sel, "</select>")]
-	for _, want := range []string{`value=""`, `value="github">GitHub`, `value="local">平台新建`} {
+	for _, want := range []string{`value=""`, `value="github">GitHub`, `value="linear">Linear`, `value="local">平台新建`} {
 		if !strings.Contains(sel, want) {
 			t.Fatalf("#sourceFilter is missing %s: %s", want, sel)
 		}

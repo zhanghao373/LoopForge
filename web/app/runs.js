@@ -1,4 +1,40 @@
-async function startRun(){const button=$('#confirmRun');try{const workflowId=$('#runWorkflowChoice').value||state.workflow?.id,projectId=currentProject()?.id||'';if(!workflowId)return toast('暂无可运行 SOP');button.disabled=true;button.textContent='正在启动…';if($('#flowView').classList.contains('active')&&workflowId===state.workflow.id&&!catalogForeign(state.workflow.projectId)&&(!catalogGeneric(state.workflow)||isPlatformAdmin()))await saveWorkflow();const run=await api('/api/runs',{method:'POST',body:JSON.stringify({workflowId,input:$('#runInput').value.trim(),projectId})});state.activeRun=run;state.selectedRun=run.id;state.selectedRunNode=null;if(run?.id){if(!state.data.runs)state.data.runs=[];const existing=state.data.runs.findIndex(x=>x.id===run.id);if(existing>=0)state.data.runs[existing]={...state.data.runs[existing],...run};else state.data.runs=sortRunsDescending([run,...state.data.runs]);}$('#runModal').classList.remove('open');$('#runInput').value='';switchView('runs');showRunDetail(run.id);toast(run.status==='queued'?'已进入项目排队，获得名额后自动启动':'流水线已开始，实时事件流已连接')}catch(e){toast(e.message)}finally{button.disabled=false;button.textContent='开始运行'}}
+async function startRun(){
+  const button=$('#confirmRun');
+  if(button.dataset.starting)return;
+  const workflowId=$('#runWorkflowChoice').value||state.workflow?.id,projectId=currentProject()?.id||'';
+  if(!workflowId)return toast('暂无可运行 SOP');
+  const launch=state.data?.capabilities?.personalExecutors,launchInput=launch?sopLaunchPayload():{};
+  if(launch&&!launchInput)return;
+  button.dataset.starting='1';
+  button.disabled=true;
+  button.textContent='正在启动…';
+  try{
+    if(!launch&&$('#flowView').classList.contains('active')&&workflowId===state.workflow?.id&&!catalogForeign(state.workflow.projectId)&&(!catalogGeneric(state.workflow)||isPlatformAdmin())){
+      await saveWorkflow();
+    }
+    const input=$('#runInput').value.trim();
+    const disabledNodeIds=sopLaunchDisabledNodes();
+    const run=await api('/api/runs',{method:'POST',body:JSON.stringify({workflowId,input,projectId,...launchInput,...(disabledNodeIds.length?{disabledNodeIds}:{})})});
+    if(launch)rememberSOPLaunch(projectId,workflowId,launchInput);
+    state.activeRun=run;
+    state.selectedRun=run.id;
+    state.selectedRunNode=null;
+    const runs=state.data.runs||[];
+    state.data.runs=sortRunsDescending([run,...runs.filter(item=>item.id!==run.id)]);
+    $('#runModal').classList.remove('open');
+    $('#runInput').value='';
+    switchView('runs');
+    showRunDetail(run.id);
+    toast(run.status==='queued'?'已进入执行队列':'SOP 已开始');
+  }catch(error){
+    if(launch)$('#sopLaunchStatus').textContent=error.message;
+    else toast(error.message);
+  }finally{
+    delete button.dataset.starting;
+    button.disabled=false;
+    button.textContent='开始运行';
+  }
+}
 function stopLiveRun(){if(state.runStream){state.runStream.close();state.runStream=null}clearInterval(state.poll);state.poll=null}
 function mergeSeqItems(prev, incoming, seqOf){
   const bySeq=new Map();
@@ -236,6 +272,13 @@ function renderRunFilterCounts(base){
 function renderRuns(){
   renderRunOverview();const workflows=catalogWorkflows();$('#runWorkflowFilter').innerHTML='<option value="">全部 SOP</option>'+workflows.map(w=>`<option value="${escapeHTML(w.id)}" ${state.runWorkflowFilter===w.id?'selected':''}>${escapeHTML(w.name)}</option>`).join('');
   let base=sortRunsDescending(scopedRuns(sopRuns(state.data.runs)));
+  const environment=$('#runEnvironmentField');
+  if(environment)environment.hidden=!state.data?.capabilities?.personalExecutors;
+  if(state.runEnvironmentFilter)base=base.filter(r=>{
+    const execution=r.executionContext||{};
+    const mode=execution.executionMode==='runner'&&execution.executionPool!=='cloud'?'runner':'cloud';
+    return mode===state.runEnvironmentFilter;
+  });
   if(state.runWorkflowFilter)base=base.filter(r=>r.workflowId===state.runWorkflowFilter);
   if(state.runQuery)base=base.filter(r=>{const ctx=runContext(r);return `${r.id} ${r.input} ${r.workflowSnapshot?.name||''} ${ctx.issue?.title||''}`.toLowerCase().includes(state.runQuery)});
   renderRunFilterCounts(base);
@@ -424,9 +467,13 @@ function matchTelemetryAdapter(e,view){
   return a===view;
 }
 function telemetrySectionTitle(adapter){return ({live:'节点实时轨迹',hooks:'Hook 轨迹',otel:'OTEL 轨迹'})[adapter]||'节点轨迹'}
-function telemetryEmptyHint(adapter){return ({live:'该节点没有实时轨迹',hooks:'还没有 Hook 事件。角色级 Hook 在 Claude Code、Codex 或 CodeBuddy 触发后会写到这里。',otel:'还没有 OTEL span。需要 CodeBuddy 打开原生 OTLP 导出。'})[adapter]||'该节点没有轨迹'}
+function telemetryEmptyHint(adapter){
+  if(adapter==='hooks'&&state.data?.capabilities?.personalExecutors)return '还没有角色级 Hook 事件。';
+  return ({live:'该节点没有实时轨迹',hooks:'还没有 Hook 事件。角色级 Hook 在 Claude Code、Codex 或 CodeBuddy 触发后会写到这里。',otel:'还没有 OTEL span。需要 CodeBuddy 打开原生 OTLP 导出。'})[adapter]||'该节点没有轨迹'}
 function telemetrySourceTabs(adapter,attr){
-  return `<div class="trace-source-tabs">${[['live','实时'],['hooks','Hook'],['otel','OTEL']].map(([id,label])=>`<button type="button" class="${adapter===id?'active':''}" ${attr}="${id}">${label}</button>`).join('')}</div>`;
+  const sources=[['live','实时'],['hooks','Hook']];
+  if(!state.data?.capabilities?.personalExecutors)sources.push(['otel','OTEL']);
+  return `<div class="trace-source-tabs">${sources.map(([id,label])=>`<button type="button" class="${adapter===id?'active':''}" ${attr}="${id}">${label}</button>`).join('')}</div>`;
 }
 function captureScrollBox(el){if(!el)return null;return {top:el.scrollTop,left:el.scrollLeft,stick:(el.scrollHeight-el.clientHeight-el.scrollTop)<72}}
 function restoreScrollBox(el,saved,fallbackBottom){if(!el)return;if(saved){el.scrollTop=saved.stick?el.scrollHeight:saved.top;if(saved.left!=null)el.scrollLeft=saved.left;return}if(fallbackBottom)el.scrollTop=el.scrollHeight}
@@ -535,6 +582,9 @@ function displayNodeOutput(raw){
 }
 function inspectorNeedsRefresh(host,r){
   const selected=state.selectedRunNode,nr=r.nodes?.[selected]||{};
+  const nodes=r.workflowSnapshot?.nodes||(state.data.workflows||[]).find(w=>w.id===r.workflowId)?.nodes||state.workflow?.nodes;
+  const guidance=host.querySelector('[data-guide-node]');
+  if(Boolean(guidance)!==canGuideRunNode(r,nodes?.find(node=>node.id===selected)))return true;
   if(Boolean(r.pauseRequested)!==Boolean(host.querySelector('.paused-run-callout')))return true;
   if(r.pauseRequested){
     const hasContextField=Boolean(host.querySelector('.paused-run-callout [data-human-context]'));
@@ -568,6 +618,32 @@ function nodeInspectorIsRunning(run,nodeId){
   /** 已加载的子流程用于校正父节点仍为运行中的过渡状态。 */
   const child=childRunState(run.nodes[nodeId].childRunId);
   return (!child||(child.status==='running'&&!child.pauseRequested&&!child.cancelRequested))&&graphNodeView(run,nodeId).cls==='running';
+}
+function canGuideRunNode(run,node){
+  const execution=run.nodes?.[node?.id];
+  return node?.type==='agent' && run.kind!=='workspace' && !runIsGroupMode(run) &&
+    nodeInspectorIsRunning(run,node.id) && Boolean(execution.startedAt) &&
+    execution.provider!=='a2a' && node.executorOverrideId!=='a2a';
+}
+async function guideRunNode(run,node){
+  if(!canGuideRunNode(run,node))return;
+  const {attempt,startedAt}=run.nodes[node.id];
+  const value=await afPrompt({
+    title:`定向指导 · ${node.name||node.id}`,
+    message:'发送后会中断此节点的当前执行，并带着指导继续。其他并行节点照常运行。',
+    label:'指导内容',
+    multiline:true,
+    confirmText:'发送并继续'
+  });
+  if(value==null)return;
+  const guidance=value.trim();
+  if(!guidance)return toast('请填写指导内容','err');
+  try{
+    await api(`/api/runs/${encodeURIComponent(run.id)}/guide-node`,{
+      method:'POST',body:JSON.stringify({nodeId:node.id,attempt,startedAt,guidance})
+    });
+    toast('指导已送达，节点正在准备继续','ok');
+  }catch(e){toast(e.message,'err')}
 }
 function patchRunLive(r){
   const host=$('#runDetail');if(!host||host.dataset.runId!==r.id||host.dataset.controlSignature!==runControlSignature(r)){renderRunDetail(r);return}
@@ -1195,6 +1271,7 @@ function renderRunDetail(r){
   const alignPanelHTML=r.workflowId==='scheduled-baseline-align'?alignConflictPanelHTML(r):'';
   const logBusy=state.runLogs?.runId===pg.runId&&state.runLogs.nodeId===pg.nodeId&&state.runLogs.loading&&!logPage;
   const previewEnabled=runPreviewDeclared(r);
+  const personal=localRunEval();
   const allowedTabs=['overview','trace','logs','workspace','eval'];
   if(previewEnabled)allowedTabs.splice(4,0,'preview');
   const runDetailTab=allowedTabs.includes(state.runDetailTab)?state.runDetailTab:'overview';
@@ -1202,6 +1279,12 @@ function renderRunDetail(r){
   if(previewEnabled)runTabs.push('preview:前端预览');
   runTabs.push('eval:智能评测');
   host.innerHTML=`<div class="run-detail-main"><header class="run-detail-header"><div class="run-detail-topbar"><button class="button ghost small run-back-inline" data-run-back>← 返回运行列表</button><div class="run-breadcrumb"><span>${issueRef}</span><i>›</i><span>${escapeHTML(wf.name)}</span></div>${r.executionContext?.parentRunId?`<button class="button ghost small" data-open-parent-run="${escapeHTML(r.executionContext.parentRunId)}">↑ 返回父 SOP 运行</button>`:''}<div class="run-header-actions">${issueId?`<button class="button primary small" data-open-issue="${escapeHTML(issueId)}">打开需求</button>`:''}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}<button class="button ghost small" data-open-flow>查看流程定义</button>${['queued','running','waiting'].includes(r.status)?'<button class="button danger-outline small" data-cancel-run>取消运行</button>':'<button class="button danger-outline small" data-delete-run>删除记录</button>'}</div></div><div class="run-header-main"><div><h2>${escapeHTML(ctx.issue?.title||wf.name)}</h2><p>${escapeHTML(r.input||'无运行输入')}</p></div><div class="run-status-wrap">${workspaceRestoreButtonHTML()}<span class="status ${runDisplayStatusClass(r)}">${runDisplayStatus(r)}</span>${r.status==='failed'&&!gongfengIssueClosed(ctx.issue)?'<button class="button primary small" data-resume-run>↻ 重试运行</button>':''}${canManuallyPassFailedNode(r)&&!gongfengIssueClosed(ctx.issue)?`<button class="button ghost small" data-pass-node="${escapeHTML(r.id)}" data-node="${escapeHTML(failedNodeId(r))}">手动通过</button>`:''}</div></div><div class="run-header-meta"><span class="run-meta-chip run-id-chip" title="${escapeHTML(r.id)}">Run <code>${escapeHTML(r.id.slice(-12))}</code><button type="button" class="run-id-copy" data-copy-run title="复制完整 Run ID" aria-label="复制 Run ID"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9A1.5 1.5 0 0 0 3.5 10.5H5.5"/></svg></button></span>${runModeChipHTML(r,wf)}${runExecutionChipHTML(r)}<span class="run-meta-chip"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>启动于 ${new Date(r.createdAt).toLocaleString()}</span><span class="run-meta-chip" title="${escapeHTML(runTimingTitle(r))}"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>执行 ${runElapsed(r)}${runWallNote(r)}</span></div></header><div class="run-section-label"><b>执行详情</b><div class="run-section-label-actions"><button class="button ghost small" data-export-logs title="下载本次运行全部节点的 Worker 日志">导出全部日志</button><div class="run-tabs" role="tablist">${runTabs.map(t=>{const[k,label]=t.split(':');return `<button class="run-tab ${runDetailTab===k?'active':''}" data-run-tab="${k}">${label}</button>`}).join('')}</div></div></div><div class="run-pane" data-run-pane="overview" ${runDetailTab==='overview'?'':'hidden'}><section class="run-context-grid">${runProgressCellHTML(r,wf,progress,graphNodes)}<div data-run-usage>${liveUsageHTML(r)}</div><div><span>交付物</span><b>${(r.artifacts||[]).length} 个不可变快照</b><small>按节点和尝试次数保留版本</small></div></section></section>${alignPanelHTML}${runIsGroupMode(r)?`<details class="run-sop-snapshot"><summary><div><b>已冷冻 SOP 快照</b><span>历史协作 · ${graphNodes.length} 个节点可展开审计</span></div></summary>`:''}<section class="run-graph-section"><div class="section-heading"><div><h3>节点执行拓扑</h3><span>点击节点查看该节点的输出、产物和执行事件</span></div><div class="graph-legend"><span><i class="succeeded"></i>完成</span><span><i class="running"></i>运行中</span><span><i class="waiting_approval"></i>待审批</span><span><i></i>未开始</span></div></div><div class="run-graph">${graphNodes.map((n,index)=>{const gv=graphNodeView(r,n.id),meta=nodeMeta(n),arts=(r.artifacts||[]).filter(a=>a.nodeId===n.id).length;return `${index?'<span class="graph-arrow">→</span>':''}<button class="graph-node ${gv.cls} ${state.selectedRunNode===n.id?'selected':''}" data-run-node="${escapeHTML(n.id)}"><span class="node-icon ${meta.kind}">${runNodeIcon(meta.kind)}</span><div><b>${escapeHTML(n.name)}</b><small>${escapeHTML(gv.text)}</small></div>${arts?`<em>${arts} 产物</em>`:''}</button>`}).join('')}</div></section><div class="node-drilldown"><section class="node-inspector"><div class="section-heading"><div class="node-inspector-title"><h3>${escapeHTML(selected?.name||'节点详情')}</h3><span class="node-activity-inline${inspectorRunning?' is-running':''}" ${nr.activity?'':'hidden'}>当前活动：<b>${escapeHTML(nr.activity||'')}</b></span><span class="node-inspector-model">${escapeHTML(nr.provider||'未分配')}${nr.model?` · ${escapeHTML(nr.model)}`:''}</span></div><span class="status node-inspector-status ${nr.status||'pending'}${inspectorRunning?' is-running':''}">${statusText(nr.status)||'待执行'}</span></div><div class="node-facts"><div><span>执行次数</span><b>${nr.attempt||0}</b></div><div><span>返工</span><b>${nr.reworkCount||0}</b></div><div><span>Token</span><b>${formatTokens(nr.usage?.totalTokens)}</b></div><div><span>工具调用</span><b>${nr.toolCalls||0}</b></div></div>${childSOPPanelHTML(r,selected?.id)}${gateResultCardHTML(nr)}${canRerunFromHere(r,selected?.id)?`<div class="node-rerun-row"><button type="button" class="button ghost small" data-rerun-from-here="${escapeHTML(selected.id)}">从这里重跑</button><small>保留上游结果，从本节点及下游重跑</small></div>`:''}${nr.output?`<div class="node-output"><div><b>节点输出</b><button data-copy-output>复制</button></div><pre>${escapeHTML(displayNodeOutput(nr.output))}</pre></div>`:'<div class="node-output empty"><b>节点输出</b><p>节点完成后，结构化输出会显示在这里。</p></div>'}<div class="runtime-details"><span>Sandbox <code>${escapeHTML(nr.sandboxId||'—')}</code></span><span>Session <code>${escapeHTML(nr.sessionId||'—')}</code></span></div></section><section class="node-artifacts"><div class="section-heading"><div><h3>节点交付物</h3><span>${nodeArtifacts.length} 个版本</span></div></div><div class="node-artifact-list">${nodeArtifacts.map(a=>`<button class="node-artifact-card" data-artifact="${escapeHTML(a.id)}"><span class="artifact-file-icon">${a.mediaType==='application/json'?'{}':'MD'}</span><div><b>${escapeHTML(a.name)}</b><span>${escapeHTML(a.path)}</span><small>attempt ${a.attempt} · ${Math.max(1,Math.ceil((a.size||0)/1024))} KB · ${(a.sha256||'').slice(0,10)}</small></div><i>预览 ›</i></button>`).join('')||'<div class="empty-inline"><span>◇</span><p>此节点还没有登记交付物</p></div>'}</div></section></div>${runIsGroupMode(r)?'</details>':''}</div><div class="run-pane" data-run-pane="trace" ${runDetailTab==='trace'?'':'hidden'}><section class="trace-section"><div class="section-heading"><div><h3>${telemetrySectionTitle(telAdapter)}</h3><span>${telPage?`${telemetry.length} 条已加载`:'加载最近 100 条'}</span></div><div class="trace-heading-actions">${telemetrySourceTabs(telAdapter,'data-tel-adapter')}${telPage?.hasMore?`<button class="button ghost small" data-tel-more>加载更早的 100 条</button>`:''}</div></div><div class="telemetry-feed">${telPage?([...telemetry].reverse().map(telemetryItemHTML).join('')||`<div class="empty-inline"><p>${telemetryEmptyHint(telAdapter)}</p></div>`):'<div class="empty-inline"><p>正在加载轨迹…</p></div>'}</div></section></div><div class="run-pane" data-run-pane="logs" ${runDetailTab==='logs'?'':'hidden'}><section class="worker-log-section"><div class="section-heading"><div><h3>Worker 日志</h3><span>${logPage?`${visibleWorkerLogs(logPage.items).length} 条调用`:(logBusy?'正在接收…':'实时加载最近调用')}</span></div><div class="worker-log-heading-actions">${logPage?.hasMore?`<button class="button ghost small" data-logs-more>加载更早的 100 条</button>`:''}</div></div><div class="worker-log-feed">${logPage?(visibleWorkerLogs(logPage.items).map(logLineHTML).join('')||'<div class="empty-inline"><p>该节点没有日志</p></div>'):'<div class="empty-inline"><p>正在加载 Worker 实时日志…</p></div>'}</div></section></div></div>`;  host.querySelector('.run-detail-main')?.insertAdjacentHTML('beforeend',`<div class="run-pane" data-run-pane="workspace" ${runDetailTab==='workspace'?'':'hidden'}>${workspacePaneHTML(r)}</div>${previewEnabled?`<div class="run-pane" data-run-pane="preview" ${runDetailTab==='preview'?'':'hidden'}>${previewPaneHTML(r)}</div>`:''}<div class="run-pane" data-run-pane="eval" ${runDetailTab==='eval'?'':'hidden'}>${runEvalPaneHTML(r)}</div>`);
+  if(canGuideRunNode(r,selected)){
+    const status=host.querySelector('.node-inspector-status');
+    status?.insertAdjacentHTML('beforebegin','<div class="node-inspector-actions"><button type="button" class="button ghost small" data-guide-node>定向指导</button></div>');
+    status?.previousElementSibling?.append(status);
+    host.querySelector('[data-guide-node]')?.addEventListener('click',()=>guideRunNode(state.activeRun||r,selected));
+  }
   if(keepFrame){const fresh=host.querySelector('iframe[data-vscode-frame]');if(fresh)fresh.replaceWith(existingFrame);}
   if(keepPreview){const fresh=host.querySelector('iframe[data-preview-frame]');if(fresh)fresh.replaceWith(existingPreviewFrame);}
   const headerActions=host.querySelector('.run-header-actions');if(r.status==='running'&&headerActions)headerActions.querySelector('[data-cancel-run]')?.insertAdjacentHTML('beforebegin','<button class="button ghost small" data-pause-run>暂停运行</button>');
@@ -1226,6 +1309,24 @@ function renderRunDetail(r){
     const callout=focusNr.status==='waiting_approval'?approvalCalloutHTML(focusNode,focusNr,nodes):failedNodeRecoveryCalloutHTML(r.id,focusNode,focusNr);
     header?.insertAdjacentHTML('afterend',callout);
     host.querySelector('.node-inspector .approval-callout')?.remove();
+    if(personal&&r.status==='failed'){
+      const actions=host.querySelector('.approval-callout.failed .ap-buttons');
+      const logs=document.createElement('button');
+      logs.type='button';
+      logs.className='button ghost';
+      logs.textContent='查看失败节点日志';
+      logs.onclick=()=>{state.runDetailTab='logs';selectRunNode(focusNode.id)};
+      actions?.append(logs);
+    }
+  }else if(personal&&r.status==='succeeded'&&!nonSOP&&(r.artifacts||[]).length){
+    const deliverables=new Map();
+    for(const artifact of r.artifacts){
+      const key=JSON.stringify([artifact.nodeId,artifact.name]);
+      const saved=deliverables.get(key);
+      if(!saved||artifact.attempt>=saved.attempt)deliverables.set(key,artifact);
+    }
+    const items=Array.from(deliverables.values()).map(artifact=>`<button type="button" class="button ghost small" data-artifact="${escapeHTML(artifact.id)}">${escapeHTML(artifact.name)}</button>`).join('');
+    host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',`<div class="approval-callout"><b>本次交付物</b><div class="ap-buttons">${items}</div></div>`);
   }
   const childCallout=r.status==='queued'?'':childSOPCalloutHTML(r);if(childCallout)host.querySelector('.run-detail-header')?.insertAdjacentHTML('afterend',childCallout);
   if(pg.child){const note=`<p class="child-sop-trace-note">这是 SOP 节点，下面显示的是子 SOP 运行 <code>${escapeHTML(pg.runId.slice(-12))}</code> 全部节点的内容。</p>`;host.querySelectorAll('.trace-section>.section-heading,.worker-log-section>.section-heading').forEach(h=>h.insertAdjacentHTML('afterend',note))}
@@ -1277,13 +1378,20 @@ function defaultRunEval(){return{enabled:true,version:1,threshold:70,dimensions:
   {id:'recovery',name:'错误恢复',question:'相同错误是否反复出现？',weight:10},
   {id:'delivery',name:'交付完整',question:'终态、产物和验证信号是否齐全？',weight:10}
 ]}}
-// Run evals run on CodeBuddy only; a saved "codex:…" id falls back.
-function runEvalModel(){const api=window.AgentFlowAssistantModels,stored=state.runEvalModel||localStorage.getItem('agentflow.runEvalModel')||'';if(api?.codeBuddyModel)return api.codeBuddyModel(stored);return stored||(api&&api.DEFAULT)||'default'}
+function localRunEval(){return !!state.data?.capabilities?.personalExecutors}
+function runEvalModel(){
+  if(localRunEval())return 'codex:default';
+  const api=window.AgentFlowAssistantModels,stored=state.runEvalModel||localStorage.getItem('agentflow.runEvalModel')||'';
+  return api?.codeBuddyModel?api.codeBuddyModel(stored):stored||api?.DEFAULT||'default';
+}
 function setRunEvalModel(id){state.runEvalModel=id;localStorage.setItem('agentflow.runEvalModel',id)}
 function runEvalHasKey(){return !!(userById(state.currentUser?.id)||state.currentUser||{}).codeBuddyApiKeyConfigured}
 function runEvalApplyable(rec){if(!rec||rec.status==='applied')return false;const action=((rec.target||'')+'.'+(rec.action||'')).replace(/^\./,'').toLowerCase();const full=rec.action&&rec.action.includes('.')?rec.action.toLowerCase():action;return ['workflow.update_node','agent.upsert_gate','agent.remove_gate','agent.append_instructions','agent.append_task_prompt'].includes(full)}
 function runEvalPaneHTML(run){
-  const rec=state.runEval?.runId===run.id?state.runEval:null,busy=!!state.runEvalBusy,thoughts=state.runEvalThoughts||[];
+  const rec=state.runEval?.runId===run.id?state.runEval:null;
+  const busy=state.runEvalBusy===run.id||rec?.status==='running';
+  const feedback=state.runEvalFeedback?.get(run.id)??rec?.feedback??'';
+  const thoughts=state.runEvalStreamRunID===run.id?state.runEvalThoughts||[]:[];
   const dims=rec?.policy?.dimensions||defaultRunEval().dimensions;
   const isTerminal=['succeeded','failed','cancelled'].includes(run.status);
 
@@ -1299,9 +1407,13 @@ function runEvalPaneHTML(run){
       </div>
     </div>
     <div class="run-eval-hero-action-card">
-      <div class="eval-control-label">评测大模型</div>
+      ${localRunEval()?'<div class="eval-control-label">Codex · 默认执行机器</div>':'<div class="eval-control-label">评测模型</div>'}
+      <label class="run-eval-feedback">
+        <span>这次流程哪里不满意（选填）</span>
+        <textarea class="input" data-run-eval-feedback rows="3" maxlength="2000" placeholder="例如：评审发现缺少测试时，希望只退回负责的开发节点" ${!isTerminal||busy?'disabled':''}>${escapeHTML(feedback)}</textarea>
+      </label>
       <div class="run-eval-toolbar-row">
-        <div class="schedule-model-field run-eval-model" id="runEvalModelPicker">
+        ${localRunEval()?'':`<div class="schedule-model-field run-eval-model" id="runEvalModelPicker">
           <input type="hidden" name="runEvalModel" value="${escapeHTML(runEvalModel())}">
           <button type="button" class="ai-model-toggle" data-model-toggle aria-haspopup="listbox" aria-expanded="false">
             <span class="ai-model-icon" data-family="glm">智</span>
@@ -1309,13 +1421,12 @@ function runEvalPaneHTML(run){
             <span class="ai-model-caret" aria-hidden="true"></span>
           </button>
           <div class="ai-model-menu" hidden role="listbox"></div>
-        </div>
-        <button type="button" class="button primary run-eval-launch-btn" data-start-run-eval ${isTerminal?'':'disabled'}>
+        </div>`}
+        <button type="button" class="button primary run-eval-launch-btn" data-start-run-eval ${isTerminal&&!busy?'':'disabled'}>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l2.4 7.2L21.6 12l-7.2 2.4L12 21.6l-2.4-7.2L2.4 12l7.2-2.4L12 2z"/></svg>
           <span>${rec?.status==='succeeded'?'重新评测':'启动智能评测'}</span>
         </button>
       </div>
-      <div class="eval-control-hint">消耗约 1.5k~3.5k Tokens · 耗时约 5~12 秒</div>
     </div>
   </div>`;
 
@@ -1323,12 +1434,12 @@ function runEvalPaneHTML(run){
     return `<section class="run-eval-section">${heroCard}<div class="run-eval-empty-card"><div class="empty-icon"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><h3>运行执行中，请等待结束后评测</h3><p>SOP 执行全部节点完成后，将汇聚完整的链路 Trace、Token 消耗分布与交付物契约，届时可在此一键启动质量与准入评测。</p></div></section>`;
   }
 
-  if(busy||rec?.status==='running'){
+  if(busy){
     return `<section class="run-eval-section">${heroCard}<div class="run-eval-evaluating-card"><div class="evaluating-pulse-head"><span class="evaluating-spinner"></span><div><h4>大模型全链路 Trace 深度评测中...</h4><p>正在分析节点流转拓扑、工具调用频次、异常返工日志与产物交付契约</p></div></div><div class="run-eval-thoughts">${thoughts.map(t=>`<div class="thought-item"><span class="thought-dot"></span><span>${escapeHTML(t)}</span></div>`).join('')||'<div class="thought-item"><span class="thought-dot"></span><span>正在整理执行链路 Trace 并组织评测 Prompt...</span></div>'}</div></div></section>`;
   }
 
   if(rec?.status==='failed'){
-    return `<section class="run-eval-section">${heroCard}<div class="run-eval-error-card"><div class="error-head"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><b>评测执行失败</b></div><pre>${escapeHTML(rec.error||'模型未返回结果')}</pre><p class="error-tip">请检查个人配置中的 CodeBuddy API Key 配置或网络状态后重新评测。</p></div></section>`;
+    return `<section class="run-eval-section">${heroCard}<div class="run-eval-error-card"><div class="error-head"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><b>评测执行失败</b></div><pre>${escapeHTML(rec.error||'模型未返回结果')}</pre><p class="error-tip">${localRunEval()?'请检查默认执行机器是否在线，以及 Codex 是否可用。':'请检查个人配置中的 CodeBuddy API Key 配置或网络状态后重新评测。'}</p></div></section>`;
   }
 
   if(!rec||!rec.status){
@@ -1342,7 +1453,7 @@ function runEvalPaneHTML(run){
     const barClass=num>=80?'high':(num>=60?'med':'low');
     return `<div class="clarify-bar"><span>${escapeHTML(d.name)}</span><i><b class="${barClass}" style="width:${Math.max(0,Math.min(100,num))}%"></b></i><em>${val}</em></div>`;
   }).join('');
-  const findings=(rec.result?.findings||[]).map(f=>`<li class="finding-item ${escapeHTML(f.severity||'info')}"><div class="finding-head"><span class="finding-badge ${escapeHTML(f.severity||'info')}">${escapeHTML(f.severity==='error'?'严重缺陷':f.severity==='warn'?'改进建议':'信息备忘')}</span><b class="finding-dim">${escapeHTML(f.dimension||'')}</b></div><p class="finding-msg">${escapeHTML(f.message||'')}</p>${f.nodeId?`<small class="finding-evidence">节点：<b>${escapeHTML(f.nodeId)}</b>${f.evidence?' · 证据：'+escapeHTML(f.evidence):''}</small>`:''}</li>`).join('');
+  const findings=(rec.result?.findings||[]).map(f=>`<li class="finding-item ${escapeHTML(f.severity||'info')}"><div class="finding-head"><span class="finding-badge ${escapeHTML(f.severity||'info')}">${escapeHTML(f.severity==='error'?'严重缺陷':f.severity==='warn'?'改进建议':'信息备忘')}</span><b class="finding-dim">${escapeHTML(f.dimension||'')}</b></div><p class="finding-msg">${escapeHTML(f.message||'')}</p>${f.nodeId||f.evidence?`<small class="finding-evidence">${f.nodeId?`节点 <b>${escapeHTML(f.nodeId)}</b>`:''}${f.nodeId&&f.evidence?' · ':''}${f.evidence?'证据 '+escapeHTML(f.evidence):''}</small>`:''}</li>`).join('');
   const recs=(rec.result?.recommendations||[]).map(item=>runEvalRecHTML(item)).join('')||'<div class="empty-inline"><p>本次评测未发现阻止落地的缺陷，无需额外规则补丁。</p></div>';
 
   return `<section class="run-eval-section">${heroCard}<div class="run-eval-result-grid"><div class="run-eval-scorecard"><div class="eval-score-ring-wrap ${rec.passed?'good':(rec.score>=60?'fair':'weak')}"><div class="eval-score-num">${rec.score||0}</div><div class="eval-score-label">${rec.passed?'达标通过':'未达标'}</div></div><div class="eval-score-details"><div class="eval-score-meta"><span><b>模型：</b>${escapeHTML(rec.model||'—')}</span><span><b>准入基线：</b>${rec.policy?.threshold||70} 分</span><span><b>规则：</b>v${rec.policy?.version||1}</span></div><div class="eval-dims-bars">${bars}</div></div></div>${rec.result?.summary?`<div class="run-eval-summary-card"><div class="summary-head"><span class="summary-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg></span><b>AI 架构师评估总述</b></div><p>${escapeHTML(rec.result.summary)}</p></div>`:''}</div>${findings?`<div class="run-eval-findings-box"><div class="findings-box-head"><h4>关键诊断发现 <span>(${(rec.result?.findings||[]).length})</span></h4></div><ul class="run-eval-findings">${findings}</ul></div>`:''}<div class="run-eval-recs-box"><div class="recs-head"><h4>可落地改进建议 <span>(${(rec.result?.recommendations||[]).length})</span></h4><p>点击「应用此修改」可直接将治理规则回写到 SOP 流程或角色定义中</p></div><div class="recs-list">${recs}</div></div></section>`;
@@ -1354,6 +1465,11 @@ function runEvalRecHTML(item){
 }
 function bindRunEvalPane(run,host){
   bindRunEvalModelPicker(host.querySelector('#runEvalModelPicker'));
+  const feedback=host.querySelector('[data-run-eval-feedback]');
+  if(feedback)feedback.oninput=()=>{
+    state.runEvalFeedback??=new Map();
+    state.runEvalFeedback.set(run.id,feedback.value);
+  };
   host.querySelectorAll('[data-run-eval]').forEach(b=>b.onclick=()=>{
     state.runDetailTab='eval';
     host.querySelectorAll('[data-run-tab]').forEach(x=>x.classList.toggle('active',x.dataset.runTab==='eval'));
@@ -1387,8 +1503,8 @@ async function loadRunEval(runId,background){
     const rec=await api(`/api/runs/${encodeURIComponent(runId)}/eval`,{silent:true});
     if((state.activeRun?.id||state.selectedRun)!==runId&&state.activeRun?.id!==runId)return;
     state.runEval={...rec,runId};
-    if(rec?.model)setRunEvalModel(rec.model);
-    if(rec?.status==='running'&&!state.runEvalStream)attachRunEvalStream(runId);
+    if(rec?.model&&!localRunEval())setRunEvalModel(rec.model);
+    if(rec?.status==='running'&&state.runEvalStreamRunID!==runId)attachRunEvalStream(runId);
     if(!background){
       const host=$('#runDetail');
       const pane=host?.querySelector('[data-run-pane="eval"]');
@@ -1398,36 +1514,70 @@ async function loadRunEval(runId,background){
 }
 async function startRunEval(run){
   if(!['succeeded','failed','cancelled'].includes(run.status))return toast('请等 SOP 跑完后再评测');
-  if(!runEvalHasKey()){toast('请先在个人配置中配置自己的 CodeBuddy API Key','err');switchView('settings');return}
-  state.runEvalBusy=true;state.runEvalThoughts=['正在提交评测…'];
+  if(state.runEvalBusy===run.id||(state.runEval?.runId===run.id&&state.runEval.status==='running'))return;
+  if(!localRunEval()&&!runEvalHasKey()){toast('请先在个人配置中配置自己的 CodeBuddy API Key','err');switchView('settings');return}
+  const feedback=(state.runEvalFeedback?.get(run.id)??(state.runEval?.runId===run.id?state.runEval.feedback:'')??'').trim();
+  state.runEvalBusy=run.id;
   const host=$('#runDetail'),pane=host?.querySelector('[data-run-pane="eval"]');
   if(pane){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}
   try{
-    const rec=await api(`/api/runs/${encodeURIComponent(run.id)}/eval`,{method:'POST',body:JSON.stringify({model:runEvalModel()})});
-    state.runEval={...rec,runId:run.id};
-    attachRunEvalStream(run.id);
-  }catch(e){state.runEvalBusy=false;toast(e.message,'err');if(pane){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}}
+    const rec=await api(`/api/runs/${encodeURIComponent(run.id)}/eval`,{method:'POST',body:JSON.stringify({model:runEvalModel(),...(feedback?{feedback}:{})})});
+    state.runEvalFeedback?.delete(run.id);
+    if(state.activeRun?.id===run.id){
+      state.runEval={...rec,runId:run.id};
+      attachRunEvalStream(run.id);
+    }
+  }catch(e){toast(e.message,'err')}
+  finally{
+    if(state.runEvalBusy===run.id)state.runEvalBusy=null;
+    if(pane?.isConnected&&state.activeRun?.id===run.id){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}
+  }
 }
 function attachRunEvalStream(runId){
-  if(state.runEvalStream){state.runEvalStream.close();state.runEvalStream=null}
+  state.runEvalStream?.close();
   const es=new EventSource(`/api/runs/${encodeURIComponent(runId)}/eval/stream`);
   state.runEvalStream=es;
-  const onThought=ev=>{try{const p=JSON.parse(ev.data||'{}');if(p.text){state.runEvalThoughts=[...(state.runEvalThoughts||[]),p.text].slice(-12);const pane=$('#runDetail')?.querySelector('[data-run-pane="eval"] .run-eval-thoughts');if(pane)pane.innerHTML=state.runEvalThoughts.map(t=>`<p>${escapeHTML(t)}</p>`).join('')}}catch(e){}};
-  es.addEventListener('thought',onThought);
-  const finish=async()=>{es.close();if(state.runEvalStream===es)state.runEvalStream=null;state.runEvalBusy=false;await loadRunEval(runId)};
+  state.runEvalStreamRunID=runId;
+  state.runEvalThoughts=[];
+  es.addEventListener('thought',ev=>{
+    if(state.runEvalStream!==es||state.activeRun?.id!==runId)return;
+    try{
+      const p=JSON.parse(ev.data||'{}');
+      if(!p.text)return;
+      state.runEvalThoughts=[...state.runEvalThoughts,p.text].slice(-12);
+      const pane=$('#runDetail')?.querySelector('[data-run-pane="eval"] .run-eval-thoughts');
+      if(pane)pane.innerHTML=state.runEvalThoughts.map(t=>`<p>${escapeHTML(t)}</p>`).join('');
+    }catch(e){}
+  });
+  const finish=async()=>{
+    if(state.runEvalStream!==es)return;
+    es.close();
+    state.runEvalStream=null;
+    state.runEvalStreamRunID=null;
+    await loadRunEval(runId);
+  };
   es.addEventListener('done',finish);
-  es.addEventListener('error',async ev=>{if(ev.data){try{const p=JSON.parse(ev.data);if(p.error)toast(p.error,'err')}catch(e){}}await finish()});
+  es.addEventListener('error',async ev=>{
+    if(state.runEvalStream!==es||!ev.data)return;
+    try{const p=JSON.parse(ev.data);if(p.error&&state.activeRun?.id===runId)toast(p.error,'err')}catch(e){}
+    await finish();
+  });
 }
 async function applyRunEvalRec(run,recId){
+  const evalId=state.runEval?.runId===run.id?state.runEval.id:undefined;
   if(!await afConfirm({title:'应用评测建议',message:'确认把这条建议写进当前 SOP 或角色？不会改这次运行的历史快照。',confirmText:'确认应用'}))return;
   try{
-    const rec=await api(`/api/runs/${encodeURIComponent(run.id)}/eval/apply`,{method:'POST',body:JSON.stringify({evalId:state.runEval?.id,recommendationIds:[recId]})});
-    state.runEval={...rec,runId:run.id};
+    const rec=await api(`/api/runs/${encodeURIComponent(run.id)}/eval/apply`,{method:'POST',body:JSON.stringify({evalId,recommendationIds:[recId]})});
+    const applied=rec.result?.recommendations?.find(item=>item.id===recId);
+    if(state.activeRun?.id===run.id){
+      state.runEval={...rec,runId:run.id};
+      const host=$('#runDetail'),pane=host?.querySelector('[data-run-pane="eval"]');
+      if(pane){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}
+    }
+    if(applied?.status!=='applied')return toast(applied?.applyError||'这条建议未能应用','err');
     const [workflows,agents]=await Promise.all([api('/api/workflows',{silent:true}),api('/api/agents',{silent:true})]);
     state.data.workflows=workflows;state.data.agents=agents;
     toast('已写回当前定义','ok');
-    const host=$('#runDetail'),pane=host?.querySelector('[data-run-pane="eval"]');
-    if(pane){pane.innerHTML=runEvalPaneHTML(run);bindRunEvalPane(run,host)}
   }catch(e){toast(e.message,'err')}
 }
 function openRunEvalTarget(target,id){
@@ -1435,12 +1585,20 @@ function openRunEvalTarget(target,id){
   const wf=(state.data.workflows||[]).find(w=>w.id===id);
   if(wf){state.workflow=clone(wf);state.selectedNode=null;switchView('flow');renderAll()}
 }
-async function previewArtifact(run,artifactId){
-  const artifact=(run.artifacts||[]).find(a=>a.id===artifactId);
+let artifactPreviewOrigin=null;
+function closeArtifactPreview(){
+  $('#artifactModal').classList.remove('open');
+  if(artifactPreviewOrigin?.isConnected)artifactPreviewOrigin.focus();
+  artifactPreviewOrigin=null;
+}
+async function previewArtifact(run,artifactId,origin=null){
+  const artifact=(run?.artifacts||[]).find(a=>a.id===artifactId);
   if(!artifact)return;
   const host=$('#artifactPreview');
   host.innerHTML='<div class="artifact-loading">正在加载交付物…</div>';
   $('#artifactModal').classList.add('open');
+  artifactPreviewOrigin=origin;
+  if(origin)$('#artifactModal .artifact-close')?.focus();
   try{
     const res=await fetch(`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifactId)}`);
     if(!res.ok)throw new Error(`HTTP ${res.status}`);

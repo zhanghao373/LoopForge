@@ -226,6 +226,9 @@ func (e *Engine) observationContext(run domain.Run, nodeID string, nr *domain.No
 					ctx.ExecutorID = agent.ExecutorID
 				}
 			}
+			if node.ExecutorOverrideID != "" {
+				ctx.ExecutorID = node.ExecutorOverrideID
+			}
 			break
 		}
 	}

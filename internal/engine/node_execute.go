@@ -194,6 +194,18 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 	if executorID == "" {
 		executorID = "codebuddy"
 	}
+	if override := strings.TrimSpace(node.ExecutorOverrideID); override != "" {
+		if runtime.PersonalExecutorsOnly() && !runtime.IsPersonalExecutor(override) {
+			return domain.ExecutorDefinition{}, fmt.Errorf("node %q: choose Codex, Cursor, or Claude Code", node.ID)
+		}
+		ex, found := repo.SOPExecutor(override)
+		if !found {
+			return ex, fmt.Errorf("node %q has an unsupported executor override %q", node.ID, override)
+		}
+		if override != executorID {
+			return ex, nil
+		}
+	}
 	ex, found := repo.SOPExecutor(executorID)
 	if !found && executorID == "mock" {
 		// The deterministic mock is reserved for internal tests and old run snapshots.
@@ -213,6 +225,9 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 	}
 	if !found {
 		return domain.ExecutorDefinition{}, fmt.Errorf("executor %q not found (agent %s)", executorID, agent.ID)
+	}
+	if runtime.PersonalExecutorsOnly() && !runtime.IsPersonalExecutor(ex.Kind) {
+		return domain.ExecutorDefinition{}, fmt.Errorf("node %q: choose Codex, Cursor, or Claude Code", node.ID)
 	}
 	if strings.TrimSpace(agent.Model) != "" {
 		ex.Model = agent.Model
@@ -324,6 +339,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	defer unlock()
 	executionGeneration := currentLease.Generation
 	executionAttempt := 0
+	guidedRestart := false
 	started := false
 	e.updateRun(runID, func(r *domain.Run) {
 		nr := r.Nodes[node.ID]
@@ -337,10 +353,15 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		}
 		started = true
 		r.Status = "running"
+		guidedRestart = nr.Guidance != "" && continuingInterruptedAttempt(nr)
 		nr.Status = "running"
 		if !continuingInterruptedAttempt(nr) {
 			nr.Attempt++
 			nr.A2ATaskID = ""
+			nr.Guidance = ""
+		}
+		if guidedRestart {
+			nr.Activity = "正在带定向指导继续"
 		}
 		executionAttempt = nr.Attempt
 		nr.StartedAt = time.Now().UTC()
@@ -365,6 +386,12 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			return
 		}
 		e.nodeFailedAt(runID, node, executionAttempt, executionGeneration, err, allowReject)
+	}
+	if guidedRestart {
+		if err := e.stopGuidedNodeRunnerTasks(ctx, runID, node.ID); err != nil {
+			failNode(err, false)
+			return
+		}
 	}
 	if node.Type == "sop" {
 		e.executeSOPNode(ctx, runID, wf, node, executionAttempt, executionGeneration)
@@ -461,8 +488,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	// the control-plane sandbox; when the Agent is bound to a CLI Runner
 	// (执行器) it is dispatched to that machine so gates run next to the CLI
 	// output in the runner-side task workspace.
-	gateExec := func(command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
-		return sb.Exec(ctx, runtime.CommandSpec{Argv: []string{"sh", "-lc", bindExecutionTarget(command, target)}, Provider: "verification", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, gateSink)
+	gateExec := func(gateCtx context.Context, command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
+		return sb.Exec(gateCtx, runtime.CommandSpec{Argv: []string{"sh", "-lc", bindExecutionTarget(command, target)}, Provider: "verification", CredentialBindings: []runtime.CredentialBinding{runtime.BindGit, runtime.BindMCP}}, gateSink)
 	}
 	current, _ = e.repo.RunState(runID)
 	gitCredentials := sb.credentialSnapshot()
@@ -574,8 +601,13 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	if nodeRejects(node) {
 		defaultFailure = "reject"
 	}
-	gates := make([]verificationRun, 0)
+	verifiers, err := nodeVerifiers(wf, node, defaultFailure)
+	if err != nil {
+		failNode(err, false)
+		return
+	}
 	effectiveNode := node
+	var gates []verificationRun
 	maxIterations := 1
 	loopOnExhausted := "fail"
 	loopFeedback := ""
@@ -617,8 +649,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			})
 			if execMachine := e.defaultExecutionRunner(current); execMachine != "" {
 				workspace := runnerWorkspaceRel(current, node.ID)
-				gateExec = func(command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
-					return e.dispatchRunnerCommand(ctx, execMachine, runID, node.ID, workspace, bindExecutionTarget(command, target), gateSink)
+				gateExec = func(gateCtx context.Context, command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
+					return e.dispatchRunnerCommand(gateCtx, execMachine, runID, node.ID, workspace, bindExecutionTarget(command, target), gateSink)
 				}
 			}
 			if runErr == nil && node.RunOnWorkspaceRebuild {
@@ -655,9 +687,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			break
 		}
 		effectiveNode.ArtifactOutputs = mergeArtifactContracts(agent.ArtifactOutputs, node.ArtifactOutputs)
-		gates = gates[:0]
-		for _, gate := range agent.Verification {
-			gates = append(gates, verificationRun{gate: gate, onFailure: resolveGateOnFailure(gate.OnFailure, defaultFailure)})
+		if node.Verification == nil {
+			for _, gate := range agent.Verification {
+				gates = append(gates, verificationRun{gate: gate, onFailure: resolveGateOnFailure(gate.OnFailure, defaultFailure)})
+			}
 		}
 		for _, point := range agent.Interventions {
 			if point.Required && (point.Stage == "after_execution" || point.Stage == "before_publish") {
@@ -666,7 +699,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		}
 		if ex.Kind == domain.A2AExecutorID {
 			remoteExecutor = true
-			if err = e.validateA2ANode(current, effectiveNode, agent, gates); err != nil {
+			if err = e.validateA2ANode(effectiveNode, agent, append(gates, verifiers...)); err != nil {
 				break
 			}
 			manifest, inputs := runnerArtifactInputs(wf, effectiveNode, current)
@@ -697,6 +730,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			// checkout, so their CLI invocations take turns.
 			releaseAgent := e.lockAgentInvocation(agentLockOwner, agent.ID)
 			defer releaseAgent()
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
 			if reported != nil {
 				reported.reset()
 			}
@@ -705,13 +741,15 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			attempt := 1
 			resumeSessionID := ""
 			resumeFeedback := ""
+			guidance := ""
 			if nr := current.Nodes[node.ID]; nr != nil {
 				if nr.Attempt > 0 {
 					attempt = nr.Attempt
 				}
 				resumeSessionID = strings.TrimSpace(nr.ResumeSessionID)
 				resumeFeedback = strings.TrimSpace(nr.Feedback)
-				if feedback == gateMissingRetryMarker {
+				guidance = nr.Guidance
+				if feedback == gateMissingRetryMarker || (guidedRestart && invocationSeq == 1 && resumeSessionID == "") {
 					resumeSessionID = strings.TrimSpace(nr.SessionID)
 				}
 			}
@@ -735,6 +773,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				if resumeFeedback != "" {
 					prompt += "\n\n操作员补充了以下信息，请结合它继续：\n\n" + resumeFeedback
 				}
+			}
+			if guidance != "" {
+				prompt += "\n\n## 当前节点的人工指导\n\n" + guidance
 			}
 			if requiresSubmit {
 				prompt = appendSubmitGateInstruction(prompt, node.RejectTo, feedback == gateMissingRetryMarker)
@@ -764,8 +805,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				workspace := runnerWorkspaceRel(current, node.ID)
 				result, dispatchErr := e.dispatchRunnerTask(ctx, execMachine, current, effectiveNode, sb, workspace, ex, agent, assets, prompt, invocationID, options, sink)
 				if dispatchErr == nil {
-					gateExec = func(command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
-						return e.dispatchRunnerCommand(ctx, execMachine, runID, node.ID, workspace, bindExecutionTarget(command, target), gateSink)
+					gateExec = func(gateCtx context.Context, command string, target executionTarget, gateSink runtime.EventSink) (string, error) {
+						return e.dispatchRunnerCommand(gateCtx, execMachine, runID, node.ID, workspace, bindExecutionTarget(command, target), gateSink)
 					}
 				}
 				return result, dispatchErr
@@ -790,6 +831,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	}
 	gateRejected := false
 	failedAction := ""
+	verifierFailed := false
 	lastIteration := 0
 	submitPath := ""
 	if requiresSubmit {
@@ -797,6 +839,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	}
 	for iteration := 1; iteration <= maxIterations; iteration++ {
 		lastIteration = iteration
+		verifierFailed = false
 		if requiresSubmit {
 			e.updateRun(runID, func(r *domain.Run) {
 				if nr := r.Nodes[node.ID]; nr != nil {
@@ -812,6 +855,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			}
 		}
 		output, err = runOnce(loopFeedback)
+		if ctx.Err() != nil {
+			return
+		}
 		if e.dropLostCLISession(runID, node.ID, output, err) {
 			output, err = runOnce("")
 		}
@@ -881,8 +927,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 						}
 						skippedGates++
 					}
-					if skippedGates > 0 || len(effectiveNode.ArtifactOutputs) > 0 {
-						e.observe(runID, node.ID, domain.TelemetryEvent{Category: "verification", Name: "gate.terminal", Phase: "finish", Level: "warn", Message: fmt.Sprintf("decision=%s; skipped by terminal decision (command gates %d, artifact contracts %d)", submitted.Decision, skippedGates, len(effectiveNode.ArtifactOutputs)), Attributes: map[string]any{"decision": submitted.Decision, "skippedGates": skippedGates, "artifactContracts": len(effectiveNode.ArtifactOutputs)}})
+					if skippedGates > 0 || len(verifiers) > 0 || len(effectiveNode.ArtifactOutputs) > 0 {
+						e.observe(runID, node.ID, domain.TelemetryEvent{Category: "verification", Name: "gate.terminal", Phase: "finish", Level: "warn", Message: fmt.Sprintf("decision=%s; skipped by terminal decision (command gates %d, verifiers %d, artifact contracts %d)", submitted.Decision, skippedGates, len(verifiers), len(effectiveNode.ArtifactOutputs)), Attributes: map[string]any{"decision": submitted.Decision, "skippedGates": skippedGates, "skippedVerifiers": len(verifiers), "artifactContracts": len(effectiveNode.ArtifactOutputs)}})
 					}
 				}
 			}
@@ -904,6 +950,11 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				e.observe(runID, node.ID, domain.TelemetryEvent{Category: "artifact", Name: "artifact.contract.validated", Phase: "finish", Message: "产物契约校验通过", Attributes: map[string]any{"contracts": len(effectiveNode.ArtifactOutputs), "iteration": iteration}})
 			}
 		}
+		if err == nil && len(verifiers) > 0 {
+			err, failedAction = e.runNodeVerifiers(ctx, current, effectiveNode, outputs, verifiers, gateExec, iteration)
+			verifierFailed = err != nil
+			gateRejected = failedAction == "reject"
+		}
 		if err == nil {
 			for _, candidate := range gates {
 				gate := candidate.gate
@@ -914,7 +965,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 					live, _ := e.repo.RunState(runID)
 					mrErr := e.verifyRunMRs(live, gitTok, func(rc domain.RepositoryContext) (pushedWork, error) {
 						target := executionTarget{Scope: domain.ExecutionScopeRepositories, Repository: &rc}
-						out, execErr := gateExec(mrPendingCommand, target, executionTargetSink(func(event domain.TelemetryEvent) {
+						out, execErr := gateExec(ctx, mrPendingCommand, target, executionTargetSink(func(event domain.TelemetryEvent) {
 							event.Category = "verification"
 							sink(event)
 						}, target))
@@ -936,47 +987,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 					e.observe(runID, node.ID, domain.TelemetryEvent{Category: "verification", Name: "gate.mr.passed", Phase: "finish", Message: "门禁通过：" + gate.Name, Attributes: map[string]any{"gateId": gate.ID, "gateName": gate.Name, "iteration": iteration}})
 					continue
 				}
-				gateCmd := joinGateCommands(gate.Commands, effectiveNode.ArtifactOutputs)
-				if gateCmd == "" {
-					continue
-				}
-				gateSink := func(event domain.TelemetryEvent) {
-					event.Category = "verification"
-					if event.Attributes == nil {
-						event.Attributes = map[string]any{}
-					}
-					event.Attributes["gateId"] = gate.ID
-					event.Attributes["gateName"] = gate.Name
-					event.Attributes["iteration"] = iteration
-					event.Attributes["command"] = gateCmd
-					switch event.Name {
-					case "process.started":
-						event.Message = "门禁开始：" + gate.Name
-					case "process.finished":
-						if event.Level == "error" {
-							event.Message = "门禁未通过：" + gate.Name
-						} else {
-							event.Message = "门禁通过：" + gate.Name
-						}
-					}
-					sink(event)
-				}
-				verifyOutput, verifyErr := executeForTargets(current, gate.ExecutionScope, func(target executionTarget) (string, error) {
-					return gateExec(gateCmd, target, executionTargetSink(gateSink, target))
-				})
-				if verifyErr != nil {
-					detail := strings.TrimSpace(verifyOutput)
-					if len(detail) > 2_000 {
-						detail = detail[len(detail)-2_000:]
-					}
-					if detail == "" {
-						detail = "no command output"
-					}
-					err = fmt.Errorf("verification %s command %q: %w (%s)", gate.Name, gateCmd, verifyErr, detail)
+				if _, err = executeVerificationCommand(ctx, current, effectiveNode, candidate, gateExec, sink, iteration); err != nil {
 					failedAction = candidate.onFailure
 					gateRejected = failedAction == "reject"
-				}
-				if err != nil {
 					break
 				}
 			}
@@ -991,6 +1004,9 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		loopFeedback = err.Error()
 		e.observe(runID, node.ID, domain.TelemetryEvent{Category: "orchestration", Name: "agent.loop", Phase: "progress", Message: fmt.Sprintf("第 %d 轮未通过，进入自修正", iteration), Attributes: map[string]any{"iteration": iteration, "maxIterations": maxIterations, "feedback": loopFeedback}})
 	}
+	if ctx.Err() != nil {
+		return
+	}
 	e.attachLoopRetro(runID, node.ID, retroWorkspace, lastIteration, err, failedAction)
 	if err != nil {
 		e.freezeAvailableArtifacts(runID, effectiveNode, sb.Workspace(), reported, output)
@@ -1000,7 +1016,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			}
 			return
 		}
-		if isMaxTurnsErr(err) {
+		if !verifierFailed && isMaxTurnsErr(err) {
 			e.updateRun(runID, func(r *domain.Run) {
 				nr := r.Nodes[node.ID]
 				if !shouldCommitNodeOutcome(*r, nr, executionGeneration, executionAttempt, false) {
@@ -1028,7 +1044,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			})
 			return
 		}
-		if maxIterations > 1 && loopOnExhausted == "human" {
+		if maxIterations > 1 && loopOnExhausted == "human" && (!verifierFailed || failedAction == "loop") {
 			e.updateRun(runID, func(r *domain.Run) {
 				nr := r.Nodes[node.ID]
 				if !shouldCommitNodeOutcome(*r, nr, executionGeneration, executionAttempt, false) {

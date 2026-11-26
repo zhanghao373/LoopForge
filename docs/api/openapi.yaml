@@ -2926,6 +2926,11 @@ paths:
               properties:
                 model:
                   type: string
+                  description: Optional. Local mode defaults to codex:default on the current user's default Runner. Cloud mode uses CodeBuddy.
+                feedback:
+                  type: string
+                  maxLength: 2000
+                  description: Optional feedback about this run for the evaluator to investigate.
       responses:
         "202":
           $ref: "#/components/responses/Ok"

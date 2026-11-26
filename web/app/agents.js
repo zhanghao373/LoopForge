@@ -117,7 +117,7 @@ function syncAgentTabIndicators(){$$('#agentsView .agent-tabs, #agentModal .agen
 if(typeof document!=='undefined'&&document.fonts?.ready)document.fonts.ready.then(()=>syncAgentTabIndicators()).catch(()=>{});
 function pickerHTML(items,selected,prefix){return `<input class="input picker-filter" data-picker-filter="${prefix}" placeholder="筛选名称或说明…">${(items||[]).map(x=>`<label class="asset-check"><input type="checkbox" name="${prefix}" value="${x.id}" ${(selected||[]).includes(x.id)?'checked':''}><span>${escapeHTML(x.name)}<small>${escapeHTML(x.description||x.id)}</small></span></label>`).join('')||'<span class="type-label">暂无可用资产，请先到对应的资产管理页面添加</span>'}`}
 function bindPickerFilters(root){(root||document).querySelectorAll('[data-picker-filter]').forEach(input=>input.oninput=()=>{const q=input.value.trim().toLowerCase();input.parentElement.querySelectorAll('.asset-check').forEach(row=>row.hidden=!!q&&!row.textContent.toLowerCase().includes(q))})}
-function executorOptions(selected){const allowed=new Set(['codebuddy','codex','claude','opencode','cursor','agy','kimi','pi','dsh','zcode']),items=(state.data.executors||[]).filter(x=>allowed.has(x.id)),legacy=selected&&!allowed.has(selected)?`<option value="${escapeHTML(selected)}" selected disabled>历史执行器 ${escapeHTML(selected)}（请重新选择 CLI）</option>`:'';return legacy+items.map(x=>`<option value="${escapeHTML(x.id)}" ${x.id===selected?'selected':''}>${escapeHTML(x.name||x.id)}</option>`).join('')}
+function executorOptions(selected){const allowed=new Set(['codebuddy','codex','claude','opencode','cursor','agy','kimi','pi','dsh','zcode']),items=(state.data.executors||[]).filter(x=>allowed.has(x.id)),legacy=selected&&!(state.data.capabilities?.personalExecutors?items.some(x=>x.id===selected):allowed.has(selected))?`<option value="${escapeHTML(selected)}" selected disabled ${state.data.capabilities?.personalExecutors?'hidden':''}>历史执行器 ${escapeHTML(selected)}（请重新选择 CLI）</option>`:'';return legacy+items.map(x=>`<option value="${escapeHTML(x.id)}" ${x.id===selected?'selected':''}>${escapeHTML(x.name||x.id)}</option>`).join('')}
 const AGENT_CUSTOM_MODEL='__custom__';
 function executorModelCatalogs(){return window.AgentFlowExecutorModels||{}}
 async function loadExecutorModelCatalogs(){
@@ -126,7 +126,7 @@ async function loadExecutorModelCatalogs(){
   if(cached&&Object.keys(cached).length)return cached;
   try{
     const data=await api('/api/executor-models',{silent:true});
-    if(data&&data.codebuddy&&data.codex&&data.claude)window.AgentFlowExecutorModels=data;
+    if(data?.codex&&data.claude&&(data.codebuddy||data.cursor))window.AgentFlowExecutorModels=data;
   }catch{}
   return executorModelCatalogs();
 }
@@ -234,7 +234,7 @@ function selectAgent(a,rerender=true){
   const f=$('#agentForm');
   ['id','name','description'].forEach(k=>{if(f.elements[k])f.elements[k].value=a[k]||''});
   if(f.elements.shared)f.elements.shared.checked=!!a.shared;
-  if(f.elements.executorId)f.elements.executorId.innerHTML=executorOptions(a.executorId||'codebuddy');
+  if(f.elements.executorId)f.elements.executorId.innerHTML=executorOptions(a.executorId||(state.data.capabilities?.personalExecutors?'codex':'codebuddy'));
   const paintAgentModel=()=>applyAgentModelUI(a.executorId||f.elements.executorId?.value||'codebuddy',a.model||'',a.effort||'');
   paintAgentModel();loadExecutorModelCatalogs().then(paintAgentModel).catch(()=>{});
   if(f.elements.id)f.elements.id.readOnly=!!a.id;

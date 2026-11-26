@@ -201,19 +201,17 @@ func (e *Engine) stopA2ATaskIfRequested(runID, taskID string) {
 	}
 }
 
-func (e *Engine) validateA2ANode(run domain.Run, node domain.WorkflowNode, role domain.AgentDefinition, gates []verificationRun) error {
+func (e *Engine) validateA2ANode(node domain.WorkflowNode, role domain.AgentDefinition, gates []verificationRun) error {
 	switch {
 	case !e.A2AEnabled():
 		return errors.New("A2A executor is not configured")
-	case e.defaultExecutionRunner(run) != "":
-		return errors.New("A2A nodes require a platform worker")
 	case normalizeExecutionScope(node.ExecutionScope) == domain.ExecutionScopeRepositories:
 		return errors.New("A2A artifacts require run-scoped outputs")
 	case role.Loop.Enabled:
 		return errors.New("A2A nodes require a single role invocation per attempt")
 	case role.PlatformMCP || role.KnowledgeBase || len(role.Rules)+len(role.Skills)+len(role.MCPServers)+len(role.Hooks) != 0:
 		return errors.New("A2A nodes take their runtime capabilities from the configured service")
-	case role.Model != "" && role.Model != "default":
+	case node.ExecutorOverrideID == "" && role.Model != "" && role.Model != "default":
 		return errors.New("A2A nodes use the configured service model")
 	}
 	for _, candidate := range gates {

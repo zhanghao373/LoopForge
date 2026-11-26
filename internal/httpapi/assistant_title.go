@@ -145,7 +145,8 @@ func summarizeAssistantTitle(ctx context.Context, user domain.User, model, promp
 
 func runAssistantTitleSummary(ctx context.Context, user domain.User, model, effort, prompt string) (string, error) {
 	engine, _ := assistantModelEngine(model)
-	if key, _ := assistantEngineCredential(user, engine); model == "" || key == "" {
+	bound, _ := ctx.Value(assistantHelperExecutionKey{}).(assistantHelperExecution)
+	if key, _ := assistantEngineCredential(user, engine); model == "" || (key == "" && !bound.localLogin) {
 		return "", fmt.Errorf("title model or credential unavailable")
 	}
 	prompt = strings.TrimSpace(prompt)

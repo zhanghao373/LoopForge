@@ -1,8 +1,10 @@
 package httpapi
 
 import (
-	"agentflow/internal/domain"
 	"fmt"
+
+	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 	"github.com/gin-gonic/gin"
 )
 
@@ -47,6 +49,28 @@ func (h *assistantHandlers) newExecutionTarget(userID int64, projectID string, r
 		return nil, fmt.Errorf("无效的执行机器")
 	}
 	return &target, nil
+}
+
+// A project member can post to a shared conversation with their own personal
+// credentials. Only the owner of a private Runner may use its OS login.
+func (h *assistantHandlers) assistantLocalLogin(actorID int64, target *domain.AssistantExecutionTarget, model string) (bool, error) {
+	if target == nil || target.Pool != domain.ExecutionModeRunner {
+		return false, nil
+	}
+	engine, _ := assistantModelEngine(model)
+	switch engine {
+	case assistantEngineCodex, assistantEngineClaude, runtime.AgentCLICursor:
+	default:
+		return false, nil
+	}
+	runner, ok := h.repo.Runner(target.RunnerID)
+	if !ok || runner.OwnerUserID != actorID || runner.RuntimeAuthMode(engine) != domain.RuntimeAuthLocal {
+		return false, nil
+	}
+	if !runner.SupportsLocalConversationAuth() {
+		return false, fmt.Errorf("%s 本机登录需要执行机器升级至 %s，或在执行机器中改用个人凭证", assistantEngineLabel(engine), domain.RunnerVersionLocalConversationAuth)
+	}
+	return true, nil
 }
 
 func (h *assistantHandlers) sessionMode(c *gin.Context) {

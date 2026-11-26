@@ -104,7 +104,8 @@ function parseProjectAdminRoute(hash){
 }
 function projectAdminHash(id,tab){return id?`#/projects/${encodeURIComponent(id)}${id!=='new'&&tab&&tab!=='basic'?'/'+tab:''}`:'#/projects'}
 function projectPeopleIds(p){return [...new Set([p?.ownerId,...(p?.members||[]).map(m=>m.userId)].map(Number).filter(Boolean))]}
-function blankProjectDraft(){return {id:'',key:'',name:'',description:'',color:PROJECT_SWATCHES[0],ownerId:Number(state.currentUser?.id)||'',workflowId:'generic-backend-delivery',defaultRepositoryId:'',businessDomainId:'',members:[],runEval:defaultRunEval(),tapdWorkspaceId:'',tapdIterationId:'',tapdClear:false}}
+function defaultProjectSOP(){return (state.data?.workflows||[]).some(w=>w.id==='generic-requirement-development')?'generic-requirement-development':'generic-backend-delivery'}
+function blankProjectDraft(){return {id:'',key:'',name:'',description:'',color:PROJECT_SWATCHES[0],ownerId:Number(state.currentUser?.id)||'',workflowId:defaultProjectSOP(),defaultRepositoryId:'',businessDomainId:'',members:[],runEval:defaultRunEval(),tapdWorkspaceId:'',tapdIterationId:'',tapdClear:false}}
 function projectDraftFrom(project){const d=clone(project)||{};d.members=(d.members||[]).filter(m=>Number(m.userId)!==Number(d.ownerId)).map(m=>({userId:Number(m.userId)||0,role:'member'}));d.tapdClear=false;return d}
 function projectDraftSignature(d){
   d=d||{};
@@ -486,8 +487,8 @@ function projectAdminAfterSave(projectId,creating){
   if(activeViewName()==='projects')history.replaceState(history.state,'',projectAdminHash(projectId,'repos'));
 }
 function projectDefaultSOPField(project){
-  const current=String(project.workflowId||(!project.id?'generic-backend-delivery':'')).trim();
-  const choices=(state.data.workflows||[]).filter(w=>w.generic||!w.projectId||w.projectId===project.id||w.shared);
+  const current=String(project.workflowId||(!project.id?defaultProjectSOP():'')).trim();
+  const choices=(state.data.workflows||[]).filter(w=>(w.status!=='archived'||w.id===current)&&(w.generic||!w.projectId||w.projectId===project.id||w.shared));
   const missing=current&&!choices.some(w=>w.id===current);
   const options=choices.map(w=>`<option value="${escapeHTML(w.id)}" ${w.id===current?'selected':''}>${w.generic?'通用 · ':''}${escapeHTML(w.name)}</option>`).join('');
   return `<select name="workflowId" class="select" required><option value="">请选择默认 SOP</option>${missing?`<option value="${escapeHTML(current)}" selected disabled>已失效：${escapeHTML(current)}（请重新选择）</option>`:''}${options}</select>`;

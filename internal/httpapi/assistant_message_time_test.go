@@ -144,7 +144,7 @@ func TestAssistantTurnContextStatesBeijingTimeAndProjectSwitching(t *testing.T) 
 
 func TestSystemPromptRecommendsTheGenericSOPs(t *testing.T) {
 	prompt := assistantSystemPromptText()
-	for _, want := range []string{"generic-product-delivery", "generic-frontend-delivery", "generic-backend-delivery", "主动推荐", "右上角的项目名称"} {
+	for _, want := range []string{"generic-requirement-development", "generic-defect-repair", "开发 Spec、实现和代码评审", "仅前端", "仅后端", "右上角的项目名称"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("system prompt missing %q", want)
 		}

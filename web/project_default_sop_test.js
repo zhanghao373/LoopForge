@@ -18,7 +18,7 @@ const ctx = {
   api:async(url,init)=>{const body=JSON.parse(init.body);requests.push({url,body});return body;},
 };
 vm.createContext(ctx);
-for(const name of ["projectDefaultSOPField","applyProjectDefaultSOP","buildProjectPayload","validateProjectPayload","storeSavedProject","saveProjectAdmin"]){
+for(const name of ["defaultProjectSOP","projectDefaultSOPField","applyProjectDefaultSOP","buildProjectPayload","validateProjectPayload","storeSavedProject","saveProjectAdmin"]){
   const start=source.search(new RegExp("^(?:async )?function "+name+"\\(","m"));
   assert.ok(start>=0,name);
   const rest=source.slice(start),next=/\n(?:async )?function \w+\(/.exec(rest);
@@ -31,6 +31,10 @@ assert.match(html,/value="new-sop"/);
 assert.match(html,/value="generic-backend-delivery"/);
 assert.ok(!html.includes('value="foreign"'));
 assert.match(ctx.projectDefaultSOPField({}),/value="generic-backend-delivery" selected/);
+ctx.state.data.workflows.find(w=>w.id==='generic-backend-delivery').status='archived';
+ctx.state.data.workflows.push({id:'generic-requirement-development',name:'Requirement development',generic:true,status:'published'});
+assert.match(ctx.projectDefaultSOPField({}),/value="generic-requirement-development" selected/);
+assert.doesNotMatch(ctx.projectDefaultSOPField({}),/value="generic-backend-delivery"/);
 
 for(const p of [
   {sopBindings:[{workflowId:"old",order:1},{workflowId:"next",order:2}]},

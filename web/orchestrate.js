@@ -11,7 +11,10 @@ function aiOrchestratorEngine(model) {
 }
 
 function selectedAIOrchestratorModel() {
-  return localStorage.getItem('agentflow.orchestratorModel') || localStorage.getItem('agentflow.assistantModel') || window.AgentFlowAssistantModels?.catalog().default || '';
+  const catalog=window.AgentFlowAssistantModels?.catalog();
+  const saved=localStorage.getItem('agentflow.orchestratorModel')||localStorage.getItem('agentflow.assistantModel');
+  if(catalog?.personalExecutors&&!catalog.models.some(model=>model.id===saved))return catalog.default;
+  return saved||catalog?.default||'';
 }
 
 function aiOrchestratorModels(engine = aiOrchestratorEngine(selectedAIOrchestratorModel())) {

@@ -6,39 +6,42 @@ import (
 )
 
 const (
-	RunnerWorkspaceOperationCheckpointStatus  = "checkpoint_status"
-	RunnerWorkspaceOperationCheckpointExport  = "checkpoint_export"
-	RunnerWorkspaceOperationCheckpointRead    = "checkpoint_read"
-	RunnerWorkspaceOperationCheckpointClose   = "checkpoint_close"
-	RunnerWorkspaceOperationCheckpointUpload  = "checkpoint_upload"
-	RunnerWorkspaceOperationCheckpointAppend  = "checkpoint_append"
-	RunnerWorkspaceOperationCheckpointCommit  = "checkpoint_commit"
-	RunnerWorkspaceOperationArtifacts         = "restore_artifacts" // additive, never replaces existing files
-	RunnerWorkspaceOperationReclaim           = "reclaim"           // service-only worker reclamation
-	RunnerWorkspaceOperationCheckpoint        = "checkpoint"
-	RunnerWorkspaceOperationRestore           = "restore"
-	RunnerWorkspaceOperationPrepare           = "prepare"
-	RunnerWorkspaceOperationPreparationStatus = "preparation_status"
-	RunnerWorkspaceOperationPreparationRecord = "preparation_record"
-	RunnerWorkspaceOperationTerminal          = "terminal"
-	RunnerWorkspaceOperationWrite             = "write"
-	RunnerWorkspaceOperationInfo              = "info"
-	RunnerWorkspaceOperationTree              = "tree"
-	RunnerWorkspaceOperationFile              = "file"
-	RunnerWorkspaceOperationDiff              = "diff"
-	RunnerWorkspaceOperationSearch            = "search"
-	RunnerWorkspaceOperationLog               = "log"
-	RunnerWorkspaceOperationCommit            = "commit"
-	RunnerWorkspaceOperationBrowser           = "browser"
-	RunnerWorkspaceOperationCheckouts         = "checkouts"
+	RunnerWorkspaceOperationLocalSources         = "local_sources"
+	RunnerWorkspaceOperationValidateLocalSources = "validate_local_sources"
+	RunnerWorkspaceOperationCheckpointStatus     = "checkpoint_status"
+	RunnerWorkspaceOperationCheckpointExport     = "checkpoint_export"
+	RunnerWorkspaceOperationCheckpointRead       = "checkpoint_read"
+	RunnerWorkspaceOperationCheckpointClose      = "checkpoint_close"
+	RunnerWorkspaceOperationCheckpointUpload     = "checkpoint_upload"
+	RunnerWorkspaceOperationCheckpointAppend     = "checkpoint_append"
+	RunnerWorkspaceOperationCheckpointCommit     = "checkpoint_commit"
+	RunnerWorkspaceOperationArtifacts            = "restore_artifacts" // additive, never replaces existing files
+	RunnerWorkspaceOperationReclaim              = "reclaim"           // service-only worker reclamation
+	RunnerWorkspaceOperationCheckpoint           = "checkpoint"
+	RunnerWorkspaceOperationRestore              = "restore"
+	RunnerWorkspaceOperationPrepare              = "prepare"
+	RunnerWorkspaceOperationPreparationStatus    = "preparation_status"
+	RunnerWorkspaceOperationPreparationRecord    = "preparation_record"
+	RunnerWorkspaceOperationTerminal             = "terminal"
+	RunnerWorkspaceOperationWrite                = "write"
+	RunnerWorkspaceOperationInfo                 = "info"
+	RunnerWorkspaceOperationTree                 = "tree"
+	RunnerWorkspaceOperationFile                 = "file"
+	RunnerWorkspaceOperationDiff                 = "diff"
+	RunnerWorkspaceOperationSearch               = "search"
+	RunnerWorkspaceOperationLog                  = "log"
+	RunnerWorkspaceOperationCommit               = "commit"
+	RunnerWorkspaceOperationBrowser              = "browser"
+	RunnerWorkspaceOperationCheckouts            = "checkouts"
 )
 
 // RunnerWorkspaceRequest is a bounded workspace request sent over the
 // runner's outbound control socket. Responses are transient and are never
 // persisted in runner_tasks or the run record.
 type RunnerWorkspaceRequest struct {
-	Conversation json.RawMessage `json:"conversation,omitempty"`
-	RunKind      string          `json:"runKind,omitempty"`
+	LocalSourcePaths []string        `json:"localSourcePaths,omitempty"`
+	Conversation     json.RawMessage `json:"conversation,omitempty"`
+	RunKind          string          `json:"runKind,omitempty"`
 	// ConcurrentEdit marks a person editing from the IDE: the runner writes and
 	// opens terminals beside running tasks instead of waiting for their fence.
 	ConcurrentEdit     bool                         `json:"concurrentEdit,omitempty"`
@@ -100,6 +103,13 @@ func IsWorkspaceCheckpointTransferOperation(op string) bool {
 		return true
 	}
 	return false
+}
+
+type RunnerLocalSources struct {
+	Selectable  bool     `json:"selectable"`
+	Path        string   `json:"path,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+	Directories []string `json:"directories"`
 }
 
 type RunnerWorkspaceResponse struct {

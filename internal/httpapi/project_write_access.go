@@ -59,6 +59,7 @@ var guardedRunWrites = map[string]bool{
 	"/api/runs/:id/decline-retry":      true,
 	"/api/runs/:id/cancel":             true,
 	"/api/runs/:id/pause":              true,
+	"/api/runs/:id/guide-node":         true,
 	"/api/runs/:id/resume":             true,
 	"/api/runs/:id/refresh-sop":        true,
 	"/api/runs/:id/pass":               true,

@@ -6,6 +6,11 @@ import "agentflow/internal/domain"
 // backend delivery SOP stored in generic_templates.
 const GenericBackendDeliveryWorkflowID = "generic-backend-delivery"
 
+const (
+	GenericRequirementDevelopmentWorkflowID = "generic-requirement-development"
+	GenericDefectRepairWorkflowID           = "generic-defect-repair"
+)
+
 // Platform docker assets the generic backend SOP binds to. They are catalog
 // rows (not part of the template blob), seeded by
 // migrations/seed/111_generic_docker.sql so new projects run in a container

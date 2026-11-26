@@ -81,7 +81,8 @@ func newA2ASOP(t *testing.T, endpoint, token string) (*Engine, *repo.Store, doma
 	prepare := scriptNode("prepare", "printf 'check this change' > source.txt")
 	prepare.ArtifactOutputs = []domain.ArtifactContract{{Name: "source", Path: "source.txt", MediaType: "text/plain", Required: true}}
 	review := domain.WorkflowNode{
-		ID: "review", Name: "review", Type: "agent", AgentID: "remote-reviewer", MaxAttempts: 1,
+		ID: "review", Name: "review", Type: "agent", AgentID: "remote-reviewer",
+		ExecutorOverrideID: domain.A2AExecutorID, MaxAttempts: 1,
 		ArtifactOutputs: []domain.ArtifactContract{{Name: "report", Path: "review.md", Required: true}},
 	}
 	verify := scriptNode("verify", "grep -F Reviewed .agentflow/inputs/review/report.md")
@@ -92,7 +93,7 @@ func newA2ASOP(t *testing.T, endpoint, token string) (*Engine, *repo.Store, doma
 	}
 	e, s := parallelTestEngine(t, wf)
 	err := s.PutAgent(domain.AgentDefinition{
-		ID: "remote-reviewer", Name: "Remote reviewer", ExecutorID: domain.A2AExecutorID,
+		ID: "remote-reviewer", Name: "Remote reviewer", ExecutorID: "codex", Model: "codex-model",
 		Prompt: "Review the input.",
 		Verification: []domain.VerificationGate{
 			{ID: "human", Name: "Confirm review", Mode: "manual", Required: true},

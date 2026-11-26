@@ -53,6 +53,16 @@ html[data-theme="dark"] #flowView{
 @keyframes fdTip{from{opacity:0}to{opacity:1}}
 
 /* ---------- header ---------- */
+#flowView .fd-personal-sops{display:flex;gap:4px;min-width:0;padding:2px;overflow-x:auto}
+#flowView .fd-personal-sops [aria-current="true"]{background:var(--fd-soft);color:var(--fd-ink)}
+#flowView.fd-personal .fd-ident,#flowView.fd-personal .fd-df{display:none}
+#flowView.fd-personal #publishWorkflow{background:var(--fd-surface);color:var(--fd-ink-2);border-color:var(--fd-line-2)}
+#flowView.fd-personal #publishWorkflow:hover:not(:disabled){background:var(--fd-hover);color:var(--fd-ink)}
+body:has(#flowView.active.fd-personal) #runButton{display:none}
+@media (max-width:640px){
+  #flowView.fd-personal .fd-head{flex-wrap:wrap}
+  #flowView.fd-personal .fd-personal-sops{flex-basis:100%}
+}
 #flowView .fd-head{position:relative;z-index:40;display:flex;align-items:center;gap:8px;min-height:60px;padding:10px 16px;border-bottom:1px solid var(--fd-line);background:var(--fd-surface);container-type:inline-size;container-name:fdhead;white-space:nowrap}
 #flowView .fd-ident{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;cursor:pointer;padding:3px 8px 3px 3px;margin-left:-3px;border-radius:10px;transition:background .15s}
 #flowView .fd-ident:hover,#flowView .fd-ident.open{background:var(--fd-hover)}

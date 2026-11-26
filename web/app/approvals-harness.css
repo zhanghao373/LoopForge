@@ -254,3 +254,28 @@
 #approvalsView .ap-batch-tip { color: var(--hui-muted); font-size: 12px; }
 #approvalsView .ap-batch-actions { display: inline-flex; gap: 8px; margin-left: auto; }
 #approvalsView .ap-card.is-selected { border-color: color-mix(in srgb, var(--hui-accent) 45%, var(--hui-border)); background: var(--hui-accent-soft); }
+
+#approvalsView .ap-review-files {
+  display: grid;
+  gap: 7px;
+  justify-items: start;
+  color: var(--hui-text);
+}
+#approvalsView .ap-review-files strong { font: 500 13px/1.5 var(--hui-sans); }
+#approvalsView .ap-review-file-list { display: flex; flex-wrap: wrap; gap: 8px; }
+#approvalsView .ap-review-file {
+  display: grid;
+  gap: 2px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--hui-border);
+  border-radius: 8px;
+  color: var(--hui-accent);
+  font: 500 13px/1.5 var(--hui-sans);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+#approvalsView .ap-review-file:hover, #approvalsView .ap-review-file:focus-visible {
+  background: var(--hui-accent-soft);
+}
+#approvalsView .ap-review-file small { color: var(--hui-muted); font-weight: 400; }

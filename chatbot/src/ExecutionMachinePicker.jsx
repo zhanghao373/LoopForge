@@ -27,15 +27,22 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
       : execution?.runnerId || ""
     : chat.defaultRunnerId || "";
   const machine = chat.machines?.find((row) => row.id === runnerId);
+  const activeRuntime = machine?.runtimes?.find((runtime) => runtime.provider === chat.executor);
+  const authLabel = activeRuntime?.authMode === "local"
+    ? "本机登录"
+    : activeRuntime?.authMode === "personal"
+      ? "个人凭证"
+      : "";
   const known = locked ? !!execution : chat.machinesReady;
   const loadError = locked ? "" : chat.machineError;
+  const platformLabel = chat.localMode ? "本地平台容器" : "LoopForge 云端";
   const label = !known
     ? loadError
       ? "执行机器加载失败"
       : "加载执行机器…"
     : runnerId
       ? machine?.name || runnerId
-      : "LoopForge 云端";
+      : platformLabel;
   const online =
     known &&
     (runnerId
@@ -43,15 +50,16 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
       : chat.cloudPool?.configured
         ? chat.cloudPool.online > 0
         : true);
+  const labelWithAuth = authLabel ? `${label} · ${authLabel}` : label;
   const title = locked
-    ? loadError || `当前会话执行机器：${label}。会话已绑定，后续运行始终使用此机器。`
-    : chat.machineError || "选择执行机器，发送首条消息后固定";
+    ? loadError || `当前会话执行机器：${labelWithAuth}。会话已绑定，后续运行始终使用此机器。`
+    : chat.machineError || `选择执行机器，发送首条消息后固定${authLabel ? `。当前认证：${authLabel}` : ""}`;
 
   if (locked)
     return (
       <span className="machine-context machine-fixed" title={title}>
         <HarnessIcon name="server" size={13} interactive={false} />
-        <span>{label}</span>
+        <span>{labelWithAuth}</span>
         <HarnessIcon name="lock" size={11} interactive={false} />
       </span>
     );
@@ -60,7 +68,7 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
     ? [
         {
           id: "",
-          label: "LoopForge 云端",
+          label: platformLabel,
           icon: "server",
           description:
             chat.cloudPool?.configured && !chat.cloudPool.online
@@ -83,7 +91,7 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
         type="button"
         className="context-pill machine-picker"
         title={title}
-        aria-label={`执行机器：${label}`}
+        aria-label={`执行机器：${labelWithAuth}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-busy={chat.machineSaving || undefined}
@@ -94,7 +102,7 @@ export default function ExecutionMachinePicker({ chat, onManage }) {
         }}
       >
         <HarnessIcon name="server" size={13} interactive={false} />
-        <span>{label}</span>
+        <span>{labelWithAuth}</span>
         <i
           className={`connection-dot${online ? " online" : ""}`}
           aria-hidden="true"

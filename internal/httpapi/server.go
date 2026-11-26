@@ -74,7 +74,8 @@ type Server struct {
 	projects        *projectsHandlers
 	insights        *insightsHandlers
 	businessDomains *businessDomainsHandlers
-	catalog         *catalogHandlers  // catalog.go
+	catalog         *catalogHandlers // catalog.go
+	verifiers       *verifiersHandlers
 	mcp             *mcpHandlers      // mcp.go
 	market          *marketHandlers   // mcp_market.go
 	skillhub        *skillhubHandlers // skillhub_market.go
@@ -155,6 +156,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		github:          newGitHubHandlers(d),
 		users:           &usersHandlers{deps: d},
 		catalog:         &catalogHandlers{deps: d},
+		verifiers:       &verifiersHandlers{deps: d},
 		businessDomains: &businessDomainsHandlers{deps: d},
 		insights:        &insightsHandlers{deps: d},
 		projects:        &projectsHandlers{deps: d},
@@ -170,7 +172,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		runners:         &runnersHandlers{deps: d, runnerWaiters: newRunnerWaiterRegistry(), runnerControls: runnerControls, runnerBindCodes: map[string]runnerBindCode{}},
 		schedule:        &scheduleHandlers{deps: d},
 		tokens:          &tokenHandlers{deps: d},
-		syncAPI:         &syncHandlers{deps: d},
+		syncAPI:         &syncHandlers{deps: d, linear: tracker.NewLinearClient(), linearMCP: newLinearMCPAuth()},
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 		feedback:        &feedbackHandlers{deps: d},
 	}
@@ -272,9 +274,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/platform/accounts", api.users.platformAccounts)
 	g.POST("/api/platform/accounts", api.users.platformAccounts)
 	g.PUT("/api/platform/accounts/:id/password", api.users.resetPlatformAccountPassword)
-	g.GET("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
-	g.PUT("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
-	g.DELETE("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+	if !runtime.PersonalExecutorsOnly() {
+		g.GET("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+		g.PUT("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+		g.DELETE("/api/platform/codebuddy-key", api.users.platformCodeBuddyKey)
+	}
 	// master(net/http) 的 /api/users/ 子树只接受 PUT /api/users/<id>/credentials
 	// 一种形态，其余任何方法/子路径都走 method(w) → 405 JSON。
 	g.Any("/api/users/:id/credentials", func(c *gin.Context) {
@@ -297,6 +301,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 
 	api.botIdentities = &botIdentityHandlers{deps: d, publicURL: api.notifications.service.PublicURL}
 	asst := &assistantHandlers{deps: d, runnerControls: runnerControls, sourceRoot: assistantSourceRoot(), notifications: api.notifications, identities: api.botIdentities}
+	e.ReviewVerifier = asst.reviewVerifier
 	api.runs.assistant = asst
 	api.schedule.assistant = asst
 	api.notifications.service.GenerateReport = asst.generateSOPReport
@@ -439,6 +444,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/agents/:id/revisions/:rev/restore", api.catalog.agent)
 	g.POST("/api/agents/:id/clone", api.catalog.agent)
 	g.GET("/api/rules", api.catalog.rules)
+	g.GET("/api/verifiers", api.verifiers.verifiers)
+	g.PUT("/api/verifiers", api.verifiers.verifiers)
 	g.PUT("/api/rules", api.catalog.rules)
 	g.DELETE("/api/rules", api.catalog.rules)
 	g.GET("/api/skills", api.catalog.skills)
@@ -520,6 +527,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/knowledge/submissions/:id/reject", api.know.reject)
 
 	// --- runs ---
+	g.GET("/api/sop-launch/options", api.runs.sopLaunchOptions)
+	g.GET("/api/sop-launch/runners/:id/directories", api.runs.launchLocalSources)
 	g.GET("/api/runs", api.runs.runs)
 	g.POST("/api/runs", api.runs.runs)
 	g.GET("/api/runs/:id", api.runs.run)
@@ -553,6 +562,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/runs/:id/decline-retry", api.runs.run)
 	g.POST("/api/runs/:id/cancel", api.runs.run)
 	g.POST("/api/runs/:id/pause", api.runs.run)
+	g.POST("/api/runs/:id/guide-node", api.runs.run)
 	g.POST("/api/runs/:id/resume", api.runs.run)
 	g.POST("/api/runs/:id/refresh-sop", api.runs.run)
 	g.POST("/api/runs/:id/pass", api.runs.run)
@@ -577,6 +587,13 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/sync/logs", api.syncAPI.syncLogs)
 	g.GET("/api/sync/status", api.syncAPI.syncStatus)
 	g.POST("/api/sync/create", api.syncAPI.syncCreate)
+	g.POST("/api/sync/linear/projects", api.syncAPI.linearProjects)
+	g.POST("/api/sync/linear/preview", api.syncAPI.linearPreview)
+	g.POST("/api/sync/linear/import", api.syncAPI.linearImport)
+	g.GET("/api/sync/linear/mcp", api.syncAPI.linearMCPStatus)
+	g.POST("/api/sync/linear/mcp/connect", api.syncAPI.linearMCPConnect)
+	g.GET(linearMCPCallbackPath, api.syncAPI.linearMCPCallback)
+	g.DELETE("/api/sync/linear/mcp", api.syncAPI.linearMCPDisconnect)
 	g.GET("/api/shared-schedule-tasks", api.schedule.sharedScheduleTasks)
 	g.GET("/api/shared-schedule-tasks/:id/versions", api.schedule.sharedScheduleVersions)
 	g.POST("/api/schedule-jobs/:id/publish", api.schedule.publishSharedSchedule)
@@ -728,22 +745,24 @@ func (s *Server) bootstrap(c *gin.Context) {
 	var environments []domain.EnvironmentDefinition
 	var sandboxes []domain.SandboxProfile
 	var workflows []domain.WorkflowDefinition
+	var verifiers []domain.VerifierDefinition
 	var syncConfig domain.SyncConfig
 	var scheduleJobs []domain.ScheduleJob
 	var users []domain.User
 	var load stdsync.WaitGroup
-	load.Add(14)
+	load.Add(15)
 	go func() { defer load.Done(); projects = s.repo.Projects() }()
 	go func() { defer load.Done(); repositories = s.repo.Repositories() }()
 	go func() { defer load.Done(); agents = s.repo.Agents() }()
 	go func() { defer load.Done(); rules = s.repo.Rules() }()
 	go func() { defer load.Done(); skills = s.repo.Skills() }()
 	go func() { defer load.Done(); mcpServers = s.repo.MCPServers() }()
-	go func() { defer load.Done(); executors = repo.BuiltInExecutors() }()
+	go func() { defer load.Done(); executors = sopExecutors(s.engine != nil && s.engine.A2AEnabled()) }()
 	go func() { defer load.Done(); dockerfiles = s.repo.Dockerfiles() }()
 	go func() { defer load.Done(); environments = s.repo.Environments() }()
 	go func() { defer load.Done(); sandboxes = s.repo.Sandboxes() }()
 	go func() { defer load.Done(); workflows = s.repo.Workflows() }()
+	go func() { defer load.Done(); verifiers = s.repo.Verifiers("") }()
 	go func() { defer load.Done(); syncConfig = s.repo.SyncConfig() }()
 	go func() {
 		defer load.Done()
@@ -760,8 +779,24 @@ func (s *Server) bootstrap(c *gin.Context) {
 	if current, ok := s.requestUser(c.Request, true); ok {
 		currentUserID = current.ID
 	}
+	if authRequired() && !s.isPlatformAdmin(c.Request) {
+		visible := map[string]bool{}
+		for _, project := range projects {
+			visible[project.ID] = verifierProjectReadable(project, currentUserID)
+		}
+		filtered := verifiers[:0]
+		for _, v := range verifiers {
+			if visible[v.ProjectID] {
+				filtered = append(filtered, v)
+			}
+		}
+		verifiers = filtered
+	}
 	mcpServers = domain.PublicMCPServers(withMarketIcons(visibleMCPServersForUser(mcpServers, currentUserID)))
-	sharedModels := s.repo.SharedCodeBuddyModels()
+	var sharedModels []string
+	if !runtime.PersonalExecutorsOnly() {
+		sharedModels = s.repo.SharedCodeBuddyModels()
+	}
 	sponsoredModel := ""
 	if len(sharedModels) > 0 {
 		sponsoredModel = sharedModels[0]
@@ -771,10 +806,10 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"businessDomains": businessDomains, "projects": domain.PublicProjects(projects), "repositories": domain.PublicRepositories(repositories),
 		"agents": catalogAgents(agents), "rules": rules, "skills": skills, "mcpServers": mcpServers,
 		"executors": executors, "dockerfiles": dockerfiles, "environments": environments, "sandboxes": sandboxes,
-		"workflows": workflows, "syncConfig": syncConfig, "scheduleJobs": scheduleJobs, "schedulerEnabled": schedulerEnabled(),
+		"workflows": workflows, "verifiers": verifiers, "syncConfig": syncConfig, "scheduleJobs": scheduleJobs, "schedulerEnabled": schedulerEnabled(),
 		"users":        domain.PublicUsers(users),
 		"storage":      s.repo.StorageInfo(),
-		"capabilities": map[string]bool{"docker": runtime.DockerReady(), "agentChat": agentChat},
+		"capabilities": map[string]bool{"docker": runtime.DockerReady(), "agentChat": agentChat, "personalExecutors": runtime.PersonalExecutorsOnly()},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models
 		// (sponsoredModel is the default).

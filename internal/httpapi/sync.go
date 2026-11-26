@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/tracker"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,6 +13,8 @@ import (
 // syncHandlers 暴露外部同步（Gongfeng/TAPD）的配置与触发端点。
 type syncHandlers struct {
 	*deps
+	linear    *tracker.LinearClient
+	linearMCP *linearMCPAuth
 }
 
 func (h *syncHandlers) syncConfig(c *gin.Context) {

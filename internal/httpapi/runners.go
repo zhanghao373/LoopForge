@@ -259,7 +259,8 @@ func (h *runnersHandlers) runnerDefault(c *gin.Context) {
 		"cloudPool": map[string]any{"configured": poolConfigured, "online": poolOnline},
 		// minRunnerVersion lets the runners page disable「设为默认」with the
 		// same rule PUT /api/runners/default enforces.
-		"minRunnerVersion": domain.RunnerVersionDefaultSelection,
+		"minRunnerVersion":          domain.RunnerVersionDefaultSelection,
+		"minLocalAuthRunnerVersion": domain.RunnerVersionLocalConversationAuth,
 	})
 }
 
@@ -433,6 +434,10 @@ func (h *runnersHandlers) runnerRuntimeStatus(c *gin.Context) {
 		}
 	}
 	if input.AuthMode != "" {
+		if strings.EqualFold(input.Provider, "cursor") && input.AuthMode == domain.RuntimeAuthLocal && !runner.SupportsLocalConversationAuth() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cursor 本机登录需要执行机器升级至 " + domain.RunnerVersionLocalConversationAuth})
+			return
+		}
 		if err := h.repo.SetRunnerRuntimeAuthMode(input.RunnerID, input.Provider, input.AuthMode, now); err != nil {
 			if err == repo.ErrRunnerNotFound {
 				c.JSON(http.StatusNotFound, map[string]string{"error": "执行机器不存在"})
@@ -683,15 +688,11 @@ func normalizeRunnerRuntimes(reported, existing []domain.RunnerRuntime) []domain
 		if previous.Status == domain.RuntimeStatusDisabled {
 			out[i].Status = domain.RuntimeStatusDisabled
 		}
-		if domain.IsAgentCLIKind(out[i].Provider) {
-			out[i].AuthMode = domain.RuntimeAuthPersonal
-		} else if previous.AuthMode == domain.RuntimeAuthLocal || previous.AuthMode == domain.RuntimeAuthPersonal {
-			out[i].AuthMode = previous.AuthMode
-		} else if strings.EqualFold(out[i].Provider, "codebuddy") {
-			out[i].AuthMode = domain.RuntimeAuthPersonal
-		} else {
-			out[i].AuthMode = domain.RuntimeAuthLocal
+		mode := previous.AuthMode
+		if (mode != domain.RuntimeAuthLocal && mode != domain.RuntimeAuthPersonal) || domain.RuntimeForcesPersonalAuth(out[i].Provider) {
+			mode = domain.DefaultRuntimeAuthMode(out[i].Provider)
 		}
+		out[i].AuthMode = mode
 	}
 	return out
 }

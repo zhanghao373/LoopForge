@@ -20,6 +20,7 @@ const (
 type verificationRun struct {
 	gate      domain.VerificationGate
 	onFailure string
+	verifier  *domain.VerifierDefinition
 }
 
 func gateResultPath(nodeID string, attempt int) string {

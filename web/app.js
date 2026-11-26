@@ -14,7 +14,7 @@ const state = {
   projectAdminDetailId:null, projectAdminTab:'basic', projectAdminQuery:'', projectAdminFilter:'all', projectDraftFor:'', projectDraftBase:null, projectIdentCustom:false, projectIdentSeed:'', projectAdminErrors:{},
   sopScope:'project', agentScope:'project', ruleScope:'project', skillScope:'project', dockerfileScope:'project', environmentScope:'project', sandboxScope:'project',
   issueRunFilter:'', issueStatusFilter:'', issueAssigneeFilter:'', issueQuery:'', issueView:localStorage.getItem('agentflow.issueView')||'table',
-  assetType:'dockerfiles', selectedAsset:null, assetQuery:'', assetDirty:false, mcpTab:'installed', mcpScope:'project', mcpMarket:[], mcpQuery:'', editingMCPId:'', poll:null, runStream:null,
+  assetType:'dockerfiles', verifierScope:'project', selectedAsset:null, assetQuery:'', assetDirty:false, mcpTab:'installed', mcpScope:'project', mcpMarket:[], mcpQuery:'', editingMCPId:'', poll:null, runStream:null,
   obsTab:'overview', obsDeliveryFilter:'all', obsTraceRunId:null, obsTraceAdapter:'live', obsScope:localStorage.getItem('agentflow.obsScope')==='project'?'project':'user', obsUserFilter:'', obsSourceFilter:'', obsUserFilterReady:false, obsTrendGrain:['day','week','month','all'].includes(localStorage.getItem('agentflow.obsTrendGrain'))?localStorage.getItem('agentflow.obsTrendGrain'):'all', obsPeriodKey:'', obsTrendMetric:['runs','issues','cost'].includes(localStorage.getItem('agentflow.obsTrendMetric'))?localStorage.getItem('agentflow.obsTrendMetric'):'tokens', obsCrossProject:null, drawerOpen:false, issueDetailTab:'overview', issueDetailData:null, propTab:'basic',
   uiScroll:{runId:'', nodeId:'', graphLeft:0, feedTop:0, telTop:0, feedStick:true, telStick:true},
   runLogs:null, runTelemetry:null, runTelemetryAdapter:'live', runWorkspace:null,
@@ -729,9 +729,14 @@ function genericMCPChecked(id,selected){
 function assetVisible(item){return !item?.projectId||item.projectId===state.projectFilter}
 function catalogWorkflows(){return (state.data?.workflows||[]).filter(w=>!catalogGeneric(w)&&catalogVisible(w.projectId,w.shared))}
 // Runnable options = stored SOPs + platform generic templates (run by reference).
-function runnableWorkflowOptions(){return catalogWorkflows().concat((state.data?.workflows||[]).filter(catalogGeneric).map(w=>({...w,name:`通用 · ${w.name}`})))}
+function runnableWorkflowOptions(preferredId=''){
+  const stored=catalogWorkflows().filter(w=>w.status!=='archived');
+  const personalSources=new Set(stored.filter(w=>w.projectId===state.projectFilter&&w.status==='published'&&w.tags?.includes('personal-sop')).flatMap(w=>w.tags));
+  const generic=(state.data?.workflows||[]).filter(w=>catalogGeneric(w)&&w.status!=='archived'&&(w.id===preferredId||!personalSources.has(`generic-source:${w.id}`)));
+  return stored.concat(generic.map(w=>({...w,name:`通用 · ${w.name}`})));
+}
 function scopedWorkflows(){
-  const all=state.data?.workflows||[];
+  const all=(state.data?.workflows||[]).filter(w=>w.status!=='archived');
   if(state.sopScope==='generic')return all.filter(w=>catalogGeneric(w));
   if(state.sopScope==='shared')return all.filter(w=>!catalogGeneric(w)&&catalogShared(w.projectId,w.shared));
   return all.filter(w=>!catalogGeneric(w)&&catalogOwned(w.projectId));
@@ -791,7 +796,10 @@ function scopedRuns(runs){const pid=state.projectFilter,list=runs||[];return pid
 function isSOPRun(r){return r?.kind!=='workspace'}
 function sopRuns(runs){return (runs||[]).filter(isSOPRun)}
 function preferredWorkflow(){
-  const usable=catalogWorkflows(), mine=usable.filter(w=>catalogOwned(w.projectId));
+  const usable=catalogWorkflows().filter(w=>w.status!=='archived'), mine=usable.filter(w=>catalogOwned(w.projectId));
+  const project=state.data?.projects?.find(p=>p.id===state.projectFilter);
+  const configured=mine.find(w=>w.id===project?.workflowId);
+  if(configured)return configured;
   return mine.find(w=>w.id==='issue-fix-production')||mine[0]||usable.find(w=>w.id==='issue-fix-production')||usable[0]||null;
 }
 function syncWorkflowToProject(){
@@ -912,6 +920,11 @@ async function boot(){
   const view=restoredView();
   const shell = await api('/api/bootstrap', {silent: view==='runs'});
   state.data = Object.assign(state.data, shell);
+  if (shell.capabilities?.personalExecutors) {
+    $$('[data-add="preview"], [data-dtab="clarify"], [data-view="bots"]').forEach(el=>el.hidden=true);
+    const hint=$('#scheduleModelHint');
+    if(hint)hint.textContent='到点使用保存人在所选 CLI 上配置的 Key 执行。';
+  }
   const agentChatEntry = $('[data-agent-chat-entry]');
   if (agentChatEntry) agentChatEntry.hidden = shell.capabilities?.agentChat !== true;
   const savedProject=urlParams.get('projectId')||localStorage.getItem('agentflow.activeProject');
@@ -954,6 +967,7 @@ async function boot(){
   if(view==='projects')syncProjectAdminRouteState();
   renderAll();
   switchView(view);
+  restoreLinearMCPReturn();
   settleBootLoader();
   if(!['approvals','issues','runs','sops'].includes(state.currentView))preloadApprovalBadge();
   restoreRequirementComposer();
@@ -1107,6 +1121,7 @@ function bind(){
   $('#newRunFromRuns')&&($('#newRunFromRuns').onclick=()=>switchView('issues'));
   $('#runSearch').oninput=e=>{state.runQuery=e.target.value.trim().toLowerCase();resetListPage('runs');renderRuns()};
   $('#runWorkflowFilter').onchange=e=>{state.runWorkflowFilter=e.target.value;resetListPage('runs');renderRuns()};
+  $('#runEnvironmentFilter').onchange=e=>{state.runEnvironmentFilter=e.target.value;resetListPage('runs');renderRuns()};
   $('#runFilters').onclick=e=>{const button=e.target.closest('[data-run-filter]');if(!button)return;state.runFilter=button.dataset.runFilter;resetListPage('runs');$$('[data-run-filter]').forEach(x=>x.classList.toggle('active',x===button));renderRuns()};
   $$('[data-asset-scope]').forEach(btn=>btn.onclick=()=>{if(state.selectedAsset)return;const key=assetScopeKey(state.assetType);if(state[key]!==btn.dataset.assetScope)state.assetQuery='';state[key]=btn.dataset.assetScope;renderAssets()});
   $('#newAsset').onclick=()=>openAssetDetail('__new__');
@@ -1223,6 +1238,7 @@ function bind(){
   $('#revisionRestore')&&($('#revisionRestore').onclick=restoreSelectedRevision);
   $('#newIssue').onclick=openRequirementWizard;
   $('#importGitHubIssues').onclick=syncNow;
+  bindLinearImport();
   $('#importTAPDIssue')&&($('#importTAPDIssue').onclick=openImportTAPDModal);
   $$('.import-tapd-close').forEach(b=>b.onclick=()=>$('#importTAPDModal').classList.remove('open'));
   $('#importTAPDForm')&&($('#importTAPDForm').onsubmit=importTAPDStory);
@@ -1282,7 +1298,7 @@ function bind(){
   $$('.sync-close').forEach(b=>b.onclick=()=>$('#syncModal').classList.remove('open'));
   $$('.schedule-close').forEach(b=>b.onclick=closeScheduleJobModal);
   $('#syncAutoEnabledInline').onchange=e=>{$('#syncAutoEnabled').checked=e.target.checked;saveSyncConfig()};
-  $$('.artifact-close').forEach(b=>b.onclick=()=>$('#artifactModal').classList.remove('open'));
+  $$('.artifact-close').forEach(b=>b.onclick=closeArtifactPreview);
   $$('.modal').forEach(modal=>modal.addEventListener('pointerdown',e=>{
     if(e.target!==modal)return;
     if(modal.id==='requirementModal')return;
@@ -1300,7 +1316,7 @@ function bind(){
     }
     if(e.key==='Escape'){
       if(flowDesignerEscape(e))return;
-      if($('#artifactModal')?.classList.contains('open')){$('#artifactModal').classList.remove('open');return}
+      if($('#artifactModal')?.classList.contains('open')){closeArtifactPreview();return}
       if(state.drawerOpen)return closeIssueDrawer();
       if($('#requirementModal')?.classList.contains('open')){
         if(!$('#reqRepoPopover')?.hidden){toggleReqRepoPopover(false);return}
@@ -1592,7 +1608,7 @@ function settingsSidebarExpanded(){
 }
 let settingsSidebarEntryFrame=0;
 let settingsSidebarWasManaged=false;
-const settingsManagementViews=['settings','assistant','projects','bots','aiSchedules','agents','mcp','rules','skills','runners','dockerfiles','environments','sandboxes','guide','platform'];
+const settingsManagementViews=['settings','assistant','projects','bots','aiSchedules','agents','mcp','rules','skills','verifiers','runners','dockerfiles','environments','sandboxes','guide','platform'];
 const settingsRouteMotion=matchMedia('(prefers-reduced-motion: reduce)');
 let settingsRouteTransition=null;
 let settingsRouteApplying=false;
@@ -1782,11 +1798,11 @@ function setPlatformRailExpanded(expanded){
   const text=button.querySelector('.rail-label');
   if(text)text.textContent=label;
 }
-function viewTitles(){return {management:'设置',collaboration:'AI 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'}}
+function viewTitles(){return {management:'设置',collaboration:'AI 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',verifiers:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'}}
 // 设置侧栏只列一级入口；被合并进同一页的子视图（能力资产、环境资产的类型 Tab，
 // 从流程模板打开的流程设计）按 data-nav-match 高亮它们所属的入口。
 function settingsNavMatches(btn,name){return btn.dataset.view===name||String(btn.dataset.navMatch||'').split(/\s+/).includes(name)}
-const assetTypeGroups={capability:['mcp','rules','skills'],environment:['dockerfiles','environments','sandboxes']};
+const assetTypeGroups={capability:['mcp','rules','skills','verifiers'],environment:['dockerfiles','environments','sandboxes']};
 function assetTypeGroup(name){return Object.keys(assetTypeGroups).find(key=>assetTypeGroups[key].includes(name))||''}
 function syncAssetTypeTabs(name){
   const group=assetTypeGroup(name);
@@ -1922,6 +1938,7 @@ function persistView(name,push=false){
   else history.replaceState(null,'',next);
 }
 function switchView(name){
+  if(name==='bots'&&state.data?.capabilities?.personalExecutors)name='sops';
   $$('details.collab-settings').forEach(menu=>menu.open=false);
   const titles=viewTitles();
   if(name==='dashboard')name='collaboration';
@@ -1929,7 +1946,7 @@ function switchView(name){
   if(name==='assets')name='dockerfiles';
   if(name==='playbooks')name='sops';
   if(name==='management')name='settings';
-  const assetViews=['rules','skills','dockerfiles','environments','sandboxes'];
+  const assetViews=['rules','skills','verifiers','dockerfiles','environments','sandboxes'];
   const targetView=assetViews.includes(name)?'assets':name;
   if(!titles[name]||!$(`#${targetView}View`)){name='collaboration'}
   // 手敲 #/platform 或者从别的账号留下的 localStorage 恢复进来，都要挡住。

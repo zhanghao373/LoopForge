@@ -32,9 +32,9 @@ func (codexProvider) Prepare(in providerInvocation) (CommandSpec, error) {
 	}
 	// A private CODEX_HOME keeps the host login and config out of the run.
 	// Current Codex rejects --ignore-user-config and --ignore-rules.
-	if in.Driver == "docker" || in.Driver == "bwrap" {
-		// Docker and bwrap are the isolation boundary. Codex's own bubblewrap
-		// sandbox cannot create another user namespace inside them.
+	if in.Driver == "docker" || in.Driver == "bwrap" || in.Driver == "seatbelt" {
+		// The outer Docker, bwrap or seatbelt sandbox owns isolation.
+		// Nesting Codex's sandbox inside it can prevent tool execution.
 		argv = withCodexSandboxMode(argv, "danger-full-access")
 	}
 	if sessionID := strings.TrimSpace(in.Options.ResumeSessionID); sessionID != "" {

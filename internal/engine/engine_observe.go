@@ -180,7 +180,7 @@ func (e *Engine) applyObservation(r *domain.Run, nodeID string, observation doma
 		}
 		metricsSideChannel := observation.Source.Adapter == observability.AdapterHooks || observation.Source.Adapter == observability.AdapterOTEL
 		if !metricsSideChannel {
-			if activity, ok := observationActivity(observation); ok {
+			if activity, ok := observationActivity(observation); ok && !(nr.Status == "pending" && nr.Activity == guidanceRestartActivity) {
 				nr.Activity = activity
 			}
 			if observation.Category == "tool" && observation.Name == "tool.call" && observation.Phase == "finish" {

@@ -24,7 +24,16 @@ func renderPromptWithStore(st *repo.Store, wf domain.WorkflowDefinition, node do
 func applyPromptPlaceholders(st *repo.Store, wf domain.WorkflowDefinition, node domain.WorkflowNode, role *domain.AgentDefinition, run domain.Run) string {
 	prompt := ""
 	if role != nil && strings.TrimSpace(role.Prompt) != "" {
-		prompt = compileTaskPrompt(node, role.Name, role.Prompt, role.Verification)
+		gates := role.Verification
+		if node.Verification != nil {
+			gates = nil
+			for _, ref := range node.Verification.Verifiers {
+				if verifier, ok := wf.VerifierSnapshots[ref.VerifierID]; ok {
+					gates = append(gates, domain.VerificationGate{Name: verifier.Name})
+				}
+			}
+		}
+		prompt = compileTaskPrompt(node, role.Name, role.Prompt, gates)
 	}
 	// A role prompt may not reference {{input}}; never silently drop the run
 	// input.
@@ -33,6 +42,13 @@ func applyPromptPlaceholders(st *repo.Store, wf domain.WorkflowDefinition, node 
 	}
 	prompt = strings.ReplaceAll(prompt, "{{input}}", run.Input)
 	prompt = strings.ReplaceAll(prompt, "{{repository}}", promptRepositoryLine(run))
+	if len(wf.DisabledNodeIDs) > 0 {
+		names := make([]string, 0, len(wf.Nodes))
+		for _, step := range wf.Nodes {
+			names = append(names, step.Name)
+		}
+		prompt += "\n\n## 本次启用的 SOP 节点\n\n" + strings.Join(names, " → ") + "\n按所选范围工作，跳过未启用阶段。"
+	}
 	pipelineURL := "未配置 Pipeline"
 	if run.Repository.PipelineURLPattern != "" {
 		pipelineURL = strings.ReplaceAll(run.Repository.PipelineURLPattern, "{build_id}", "current")
@@ -97,6 +113,9 @@ func applyPromptPlaceholders(st *repo.Store, wf domain.WorkflowDefinition, node 
 // run's primary repository.
 func promptRepositoryLine(run domain.Run) string {
 	if run.Repository.RepositoryID == "" {
+		if count := len(domain.LocalSourceSelection(run.ExecutionContext.LocalSourcePath, run.ExecutionContext.LocalSourcePaths)); count > 0 {
+			return fmt.Sprintf("已选 %d 个本机目录副本，请在运行工作区内读取", count)
+		}
 		return "未绑定代码仓库"
 	}
 	identity := run.Repository.GongfengProjectID

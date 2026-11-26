@@ -66,6 +66,29 @@ describe("execution machine picker", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
+  test("shows the selected CLI's authentication preference on the bound machine", () => {
+    const chat = fixture({
+      executor: "codex",
+      machines: [{
+        id: "mac",
+        name: "开发 Mac",
+        status: "online",
+        runtimes: [
+          { provider: "codex", authMode: "local" },
+          { provider: "cursor", authMode: "personal" },
+        ],
+      }],
+    });
+    const { rerender } = render(<ExecutionMachinePicker chat={chat} />);
+    expect(screen.getByRole("button", {name: "执行机器：开发 Mac · 本机登录"})).toBeInTheDocument();
+    rerender(<ExecutionMachinePicker chat={{
+      ...chat,
+      executor: "cursor",
+      session: { messages: [{role: "user"}], executionTarget: {pool: "runner", runnerId: "mac"} },
+    }} />);
+    expect(screen.getByText("开发 Mac · 个人凭证")).toBeInTheDocument();
+  });
+
   test("switches back to cloud and exposes machine management", async () => {
     const chat = fixture(),
       manage = vi.fn();

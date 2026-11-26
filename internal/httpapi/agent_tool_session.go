@@ -56,6 +56,7 @@ type AgentToolSession struct {
 	modeAction        func(context.Context) error
 	SelectedMCPIDs    map[string]bool
 	ExecutionRunnerID string
+	localLogin        bool
 	RuntimeMode       string
 	Notify            func(string, any)
 	Token             string

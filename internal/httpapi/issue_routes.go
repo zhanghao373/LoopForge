@@ -3,6 +3,7 @@ package httpapi
 import (
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -155,6 +156,10 @@ func issueSyncedFromTracker(issue domain.Issue) bool {
 func (h issuesHandlers) chatClarifyIssue(c *gin.Context, issue domain.Issue) {
 	if c.Request.Method == http.MethodGet {
 		h.stream.attachIssueClarify(c, issue)
+		return
+	}
+	if runtime.PersonalExecutorsOnly() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "此功能在云端模式可用"})
 		return
 	}
 	var request chatClarifyRequest

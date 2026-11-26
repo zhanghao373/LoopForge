@@ -161,6 +161,16 @@ func cursorCatalogModels() []executorModelInfo {
 // non-sensitive list (model IDs, credit multipliers, effort levels), so it is
 // readable without login; role editing and runs still enforce auth elsewhere.
 func (h *catalogHandlers) executorModels(c *gin.Context) {
+	if runtime.PersonalExecutorsOnly() {
+		catalogs := executorModelCatalogs()
+		for id := range catalogs {
+			if !runtime.IsPersonalExecutor(id) {
+				delete(catalogs, id)
+			}
+		}
+		c.JSON(http.StatusOK, catalogs)
+		return
+	}
 	if current, ok := h.requestUser(c.Request, true); ok {
 		if user, ok := h.repo.User(current.ID); ok {
 			refreshCLIModels(c.Request.Context(), user.CodeBuddyInternetEnvironment, user.CodeBuddyAPIKey)

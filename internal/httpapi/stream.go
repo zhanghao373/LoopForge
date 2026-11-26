@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,10 @@ type chatClarifyRequest struct {
 }
 
 func (h *streamHandlers) chatClarify(c *gin.Context) {
+	if runtime.PersonalExecutorsOnly() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "此功能在云端模式可用"})
+		return
+	}
 	var request chatClarifyRequest
 	if !decode(c, &request) {
 		return

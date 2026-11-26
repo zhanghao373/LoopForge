@@ -11,9 +11,9 @@ import {
 import "./controls-motion.css";
 // CredentialAction adds a one-click link to personal settings when an error
 // was caused by a missing or rejected personal credential.
-export function CredentialAction({ text }) {
+export function CredentialAction({ text, personalExecutors = false }) {
   const hint = credentialHint(text);
-  if (!hint) return null;
+  if (!hint || (personalExecutors && hint.field === "codeBuddyApiKey")) return null;
   return (
     <span className="credential-action">
       <button type="button" onClick={() => openCredentialSettings(hint.field)}>

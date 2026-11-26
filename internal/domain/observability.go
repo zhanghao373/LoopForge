@@ -35,6 +35,9 @@ type TelemetryContext struct {
 	// user's later default-runner changes.
 	ExecutionMode     string `json:"executionMode,omitempty"` // cloud, runner
 	ExecutionRunnerID string `json:"executionRunnerId,omitempty"`
+	// LocalSourcePath is checked and copied by the personal runner, never by the platform.
+	LocalSourcePath  string   `json:"localSourcePath,omitempty"`
+	LocalSourcePaths []string `json:"localSourcePaths,omitempty"`
 	// ExecutionPool is "cloud" when ExecutionRunnerID was picked from the
 	// platform runner pool rather than the user's default machine.
 	ExecutionPool string `json:"executionPool,omitempty"`

@@ -326,3 +326,66 @@ func TestConversationProcessPollReturnsCancellation(t *testing.T) {
 		})
 	}
 }
+
+func TestConversationRunnerLocalLoginIsIsolatedAndCleaned(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
+	cases := []struct {
+		provider string
+		binding  CredentialBinding
+		dirEnv   string
+		file     string
+		key      string
+	}{
+		{"codex", BindCodex, "CODEX_HOME", "auth.json", "CODEX_API_KEY"},
+		{"claude-code", BindClaudeCode, "CLAUDE_CONFIG_DIR", ".credentials.json", "ANTHROPIC_API_KEY"},
+		{AgentCLICursor, BindAgentCLI, "CURSOR_CONFIG_DIR", "auth.json", "CURSOR_API_KEY"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			source, root := t.TempDir(), t.TempDir()
+			t.Setenv(tc.dirEnv, source)
+			t.Setenv(tc.key, "host-environment-key")
+			login := `{"fixture":"runner-login-only"}`
+			if err := os.WriteFile(filepath.Join(source, tc.file), []byte(login), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "test-operator-config"), []byte("operator config"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			// The process sees only the login file and a clean provider key.
+			// Change the private copy to verify it never writes into the source.
+			script := "#!/bin/sh\nset -eu\n" +
+				"dir=\"$" + tc.dirEnv + "\"\n" +
+				"test -z \"${" + tc.key + ":-}\"\n" +
+				"test ! -e \"$dir/test-operator-config\"\n" +
+				"test \"$(cat \"$dir/" + tc.file + "\")\" = '" + login + "'\n" +
+				"printf changed > \"$dir/" + tc.file + "\"\nprintf 'login-ok\\n'\n"
+			binary := filepath.Join(t.TempDir(), "cli")
+			if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			pool := &ConversationProcessPool{}
+			result, err := pool.Handle(ctx, root, "", nil, ConversationProcessRequest{Operation: "start", Command: &ConversationCommand{
+				Provider: tc.provider, Argv: []string{binary}, Bindings: []CredentialBinding{tc.binding}, LocalLogin: true,
+			}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out := conversationPoll(t, pool, ctx, root, result.ID); !strings.Contains(out, "login-ok") {
+				t.Fatalf("CLI did not see an isolated login: %q", out)
+			}
+			original, err := os.ReadFile(filepath.Join(source, tc.file))
+			if err != nil || string(original) != login {
+				t.Fatal("runner login source was modified", err)
+			}
+			dir := map[string]string{"codex": ".codex", "claude-code": ".claude", AgentCLICursor: ".cursor"}[tc.provider]
+			if _, err := os.Lstat(filepath.Join(root, "home", dir, tc.file)); !os.IsNotExist(err) {
+				t.Fatal("temporary credential survived process exit", err)
+			}
+		})
+	}
+}

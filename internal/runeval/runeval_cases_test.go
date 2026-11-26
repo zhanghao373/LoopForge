@@ -83,8 +83,8 @@ func TestAgentTextAndGateBranches(t *testing.T) {
 }
 
 func TestPromptParsingCatalogAndHelpers(t *testing.T) {
-	system, user := BuildPrompt(domain.RunEvalPolicy{}, domain.RunEvalFacts{RunID: "r"})
-	if !strings.Contains(system, "recommendations") || !strings.Contains(user, `"runId":"r"`) {
+	system, user := BuildPrompt(domain.RunEvalPolicy{}, domain.RunEvalFacts{RunID: "r"}, "评审漏看回归证据")
+	if !strings.Contains(system, "recommendations") || !strings.Contains(user, `"runId":"r"`) || !strings.Contains(user, `"feedback":"评审漏看回归证据"`) {
 		t.Fatalf("prompt = %q / %q", system, user)
 	}
 	for _, raw := range []string{"", "none", "```json\n{}\n```", `{"summary":""}`, `{"summary":"x","dimensions":{}}`} {

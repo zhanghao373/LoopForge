@@ -2233,10 +2233,14 @@ html[data-theme="dark"] .agent-studio-v2{box-shadow:0 18px 56px rgba(0,0,0,.42),
   opacity: 0.5 !important;
   cursor: not-allowed !important;
 }
-.eval-control-hint {
-  font-size: 10px;
-  color: var(--v3-ink-3);
-  text-align: right;
+.run-eval-feedback {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.run-eval-feedback textarea {
+  width: 100%;
+  resize: vertical;
 }
 
 /* 评测未启动时的 6 维度全景预览看板 */

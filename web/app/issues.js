@@ -108,7 +108,7 @@ function issueMatchesQuery(issue,project,query){
   const titleTokens=raw.split(/[\s\p{P}\p{S}]+/u).map(normalizeIssueTitleSearch).filter(Boolean);
   if(normalizedQuery&&normalizedTitle.includes(normalizedQuery))return true;
   if(titleTokens.length&&titleTokens.every(token=>normalizedTitle.includes(token)))return true;
-  const key=`${project?.key||'ISS'}-${issue?.number||''}`,external=issue?.externalRef?.externalId||issue?.externalRef?.externalIid||'';
+  const key=`${project?.key||'ISS'}-${issue?.number||''}`,external=issue?.externalRef?.externalIdentifier||issue?.externalRef?.externalId||issue?.externalRef?.externalIid||'';
   return `${key} ${title} ${issue?.description||''} ${external}`.toLocaleLowerCase().includes(raw);
 }
 
@@ -266,17 +266,17 @@ function issuePriorityMarkup(value){
   const icon={urgent:'priority-bolt',high:'priority-high',medium:'priority-medium',low:'priority-low'}[pri]||'priority-medium';
   return `<span class="issue-priority ${escapeHTML(pri)}">${huiIcon(icon)}<span>${issuePriorityLabel(pri)}</span></span>`;
 }
-// 来源：GitHub、工蜂与 TAPD 由外部同步，其余都算平台新建；取值与来源筛选器保持一致。
 function issueSourceLabel(i){
   const s=metricsIssueSource(i);
   if(s==='github')return 'GitHub';
   if(s==='gongfeng')return '工蜂';
   if(s==='tapd')return 'TAPD';
+  if(s==='linear')return 'Linear';
   return '平台新建';
 }
 function issueSourceMarkup(i){
   const s=metricsIssueSource(i)||'local';
-  const tone=s==='github'?'github':s==='gongfeng'?'gongfeng':s==='tapd'?'tapd':'local';
+  const tone=['github','gongfeng','tapd','linear'].includes(s)?s:'local';
   const label=issueSourceLabel(i);
   return `<span class="issue-source-chip tone-${tone}" title="需求来源：${escapeHTML(label)}">${escapeHTML(label)}</span>`;
 }
@@ -332,6 +332,7 @@ function taskStatusLabel(value){return ({queued:'排队中',dispatched:'已调�
 function issueKeyLabel(i){
   if(i.source==='gongfeng'&&i.externalRef?.externalIid) return `#${i.externalRef.externalIid}`;
   if(i.source==='tapd'&&i.externalRef?.externalId) return String(i.externalRef.externalId);
+  if(i.source==='linear'&&i.externalRef?.externalIdentifier) return i.externalRef.externalIdentifier;
   const p=(state.data.projects||[]).find(x=>x.id===i.projectId);
   return `${p?.key||'ISS'}-${i.number||''}`;
 }
@@ -739,6 +740,7 @@ function defaultSOPForIssue(issue){
   const genericSOP=!!projectSOPDef&&!!projectSOPDef.generic;
   if(issue?.source==='gongfeng'||issue?.kind==='issue'){
     if(projectFix&&knownSOP(projectFix))return projectFix;
+    if(projectSOP==='generic-requirement-development'&&inRunnable('generic-defect-repair'))return 'generic-defect-repair';
     if(genericSOP)return projectSOP;
     return inRunnable('issue-fix-production')?'issue-fix-production':(runnable[0]?.id||'issue-fix-production');
   }

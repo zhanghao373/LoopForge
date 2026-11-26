@@ -1,17 +1,18 @@
-function assetScopeKey(type){return ({rules:'ruleScope',skills:'skillScope',dockerfiles:'dockerfileScope',environments:'environmentScope',sandboxes:'sandboxScope'})[type]||'ruleScope'}
-function isProjectSharedAsset(type){return ['rules','skills','dockerfiles','environments','sandboxes'].includes(type)}
+function assetScopeKey(type){return ({rules:'ruleScope',skills:'skillScope',verifiers:'verifierScope',dockerfiles:'dockerfileScope',environments:'environmentScope',sandboxes:'sandboxScope'})[type]||'ruleScope'}
+function isProjectSharedAsset(type){return ['rules','skills','verifiers','dockerfiles','environments','sandboxes'].includes(type)}
 function assetPageCopy(type=state.assetType){
   return ({
     rules:{group:'Agent 能力',page:'能力资产',tab:'规则',desc:'维护当前项目的行为约束和执行规则。',create:'新建规则'},
     skills:{group:'Agent 能力',page:'能力资产',tab:'技能',desc:'维护当前项目可供角色使用的技能和附加文件。',create:'新建技能'},
+    verifiers:{group:'Agent 能力',page:'能力资产',tab:'Verifier',desc:'配置可在 SOP 节点引用的验收脚本和模型评审。',create:'新建 Verifier'},
     dockerfiles:{group:'运行环境',page:'环境资产',tab:'Dockerfile',desc:'维护当前项目的容器构建定义。',create:'新建 Dockerfile'},
     environments:{group:'运行环境',page:'环境资产',tab:'安装脚本',desc:'维护安装到隔离执行环境中的工具与依赖。',create:'新建安装脚本'},
     sandboxes:{group:'运行环境',page:'环境资产',tab:'沙箱',desc:'维护当前项目的运行隔离方式及环境依赖。',create:'新建沙箱'}
   })[type]||{group:'运行环境',page:'环境资产',tab:'Dockerfile',desc:'维护当前项目的容器构建定义。',create:'新建 Dockerfile'};
 }
 function assetSharedDescription(type=state.assetType){return type==='rules'?'查看其他项目共享的规则；共享规则只读，可直接绑定到本项目角色。':type==='skills'?'查看其他项目共享的技能；共享技能只读，可直接绑定到本项目角色。':'查看其他项目共享的环境资产；共享资产只读，可直接用于本项目。'}
-function assetIconName(type=state.assetType){return ({rules:'gate',skills:'skills',dockerfiles:'layers',environments:'terminal',sandboxes:'server'})[type]||'layers'}
-function assetRefIconName(type=state.assetType){return ({rules:'robot',skills:'robot',dockerfiles:'server',environments:'server',sandboxes:'workflow'})[type]||'layers'}
+function assetIconName(type=state.assetType){return ({rules:'gate',skills:'skills',verifiers:'terminal',dockerfiles:'layers',environments:'terminal',sandboxes:'server'})[type]||'layers'}
+function assetRefIconName(type=state.assetType){return ({rules:'robot',skills:'robot',verifiers:'workflow',dockerfiles:'server',environments:'server',sandboxes:'workflow'})[type]||'layers'}
 function assetScopeItems(scope){return (state.data[state.assetType]||[]).filter(item=>scope==='shared'?catalogShared(item.projectId,item.shared):catalogOwned(item.projectId))}
 function assetMatchesQuery(a,query){const q=String(query||'').trim().toLowerCase();if(!q)return true;return [a?.name,a?.id,a?.description].some(v=>String(v||'').toLowerCase().includes(q))}
 function assetFilteredItems(){return assetScopeItems(state[assetScopeKey(state.assetType)]).filter(a=>assetMatchesQuery(a,state.assetQuery))}
@@ -20,6 +21,7 @@ function assetFindVisible(id){if(!id)return null;const owned=assetScopeItems('pr
 function assetProjectName(a){return (state.data.projects||[]).find(p=>p.id===a?.projectId)?.name||a?.projectId||'平台'}
 function assetIsBuiltin(a,type=state.assetType){return (type==='sandboxes'&&(a?.id==='local'||a?.id==='generic-docker'))||(type==='dockerfiles'&&a?.id==='generic-backend')}
 function assetStatusHTML(a){
+  if(state.assetType==='verifiers')return `<span class="asset-status is-on">v${Number(a.version)||1} 已发布</span>`;
   if(!catalogOwned(a.projectId))return `<span class="asset-status is-from"><i></i>来自 ${escapeHTML(assetProjectName(a))}</span>`;
   return `<span class="asset-status ${a.shared?'is-on':''}"><i></i>${a.shared?'已共享':'未共享'}</span>`;
 }
@@ -31,6 +33,7 @@ function assetMetaHTML(a){
     const src=assetSkillSource(a);
     if(src){const latest=assetSkillLatest(src);meta.push(latest&&latest!==src.version?`<span class="hui-badge" data-tone="warn" data-size="sm"><span class="hui-lamp"><i></i></span><span class="hui-badge-label">SkillHub v${escapeHTML(src.version)} · 可更新</span></span>`:`<span class="hui-badge" data-tone="accent" data-size="sm">${huiIcon('sparkles')}<span class="hui-badge-label">SkillHub v${escapeHTML(src.version)}</span></span>`)}
   }
+  if(state.assetType==='verifiers')meta.push(item('terminal',a.review?(a.script?.trim()?'脚本 + 模型评审':'模型评审'):'脚本'));
   if(state.assetType==='dockerfiles')meta.push(item('doc',`${(a.content||'').split('\n').length} 行`));
   if(state.assetType==='environments')meta.push(item('variable',`${Object.keys(a.variables||{}).length} 个变量`));
   if(state.assetType==='sandboxes')meta.push(item('server',sandboxDriverOption(a.driver)));
@@ -68,6 +71,7 @@ function renderAssetListChrome(){
   if($('#newAssetLabel'))$('#newAssetLabel').textContent=copy.create;
   if($('#newAsset'))$('#newAsset').hidden=scope!=='project';
   if(typeof skillhubSyncChrome==='function')skillhubSyncChrome();
+  $$('[data-asset-scope="shared"]').forEach(btn=>btn.hidden=state.assetType==='verifiers');
   $$('[data-asset-scope]').forEach(btn=>btn.classList.toggle('active',btn.dataset.assetScope===scope));
   $$('[data-asset-scope-count]').forEach(el=>el.textContent=String(assetScopeItems(el.dataset.assetScopeCount).length));
   const search=$('#assetSearch');if(search&&search.value!==(state.assetQuery||''))search.value=state.assetQuery||'';
@@ -97,11 +101,12 @@ function assetCurrent(){
 }
 function assetDetailHeadHTML(a,{creating=false,dirty=false}={}){
   const kind=assetKindLabel(),copy=assetPageCopy(),readonly=!creating&&!catalogOwned(a.projectId);
-  const badge=creating?'':readonly?`<span class="asset-badge is-from">来自 ${escapeHTML(assetProjectName(a))}</span>`:`<span class="asset-badge ${a.shared?'is-on':''}">${a.shared?'已共享':'未共享'}</span>`;
+  const badge=creating?'':state.assetType==='verifiers'?`<span class="asset-badge is-on">v${Number(a.version)||1}</span>`:readonly?`<span class="asset-badge is-from">来自 ${escapeHTML(assetProjectName(a))}</span>`:`<span class="asset-badge ${a.shared?'is-on':''}">${a.shared?'已共享':'未共享'}</span>`;
   const title=creating?`新建${kind}`:(a.name||a.id);
   const desc=creating?`填写标识和名称后创建${state.assetType==='skills'?'，创建后即可上传文件':''}。`:(a.description||'暂无说明');
   let actions;
   if(creating)actions=`<button type="button" class="button" data-asset-cancel>取消</button><button type="submit" form="assetForm" class="button primary" data-asset-save>${huiIcon('plus')}创建${escapeHTML(kind)}</button>`;
+  else if(state.assetType==='verifiers'&&!readonly)actions='<button type="submit" form="assetForm" class="button primary" data-asset-save>保存并发布</button>';
   else if(readonly)actions=`<span class="asset-badge is-ro">${huiIcon('lock')}只读 · 可直接在本项目使用</span>`;
   else{
     const blocked=assetDeleteBlocked(a);
@@ -168,6 +173,7 @@ function assetSkillSourceActionHTML(a){
   return latest&&latest!==src.version?`<button type="button" class="button primary asset-source-btn" data-skillhub-source-update>${huiIcon('refresh')}更新到 v${escapeHTML(latest)}</button>`:`<button type="button" class="button hui-btn-soft asset-source-btn" data-skillhub-source-check>${huiIcon('refresh')}检查更新</button>`;
 }
 function assetOverviewCardHTML(a){
+  if(state.assetType==='verifiers')return `<h4>版本</h4><p>v${Number(a.version)||1} · 新运行使用当前版本</p>`;
   const readonly=!catalogOwned(a.projectId);
   return `<h4>概览</h4><dl class="asset-kv"><dt>归属</dt><dd>${readonly?escapeHTML(assetProjectName(a)):'本项目'}</dd><dt>共享</dt><dd>${readonly?'其他项目共享':a.shared?'已共享':'未共享'}</dd>${assetIsBuiltin(a)?'<dt>类型</dt><dd>内置</dd>':''}${assetSkillSourceRowsHTML(a)}</dl>${assetSkillSourceActionHTML(a)}`;
 }
@@ -251,12 +257,13 @@ async function toggleAssetShare(id){
   }catch(e){toast(e.message)}
 }
 function assetEmptyHint(){return ({rules:'规则是写给 Agent 的行为约束，例如编码规范、禁止事项。建好后在「角色定义」里绑定到角色。',skills:'技能是 Agent 可按需加载的说明和附加文件，例如某个框架的操作手册。建好后在「角色定义」里绑定到角色。',dockerfiles:'Dockerfile 定义沙箱容器的镜像。建好后在「沙箱管理」里选用；也可以直接用「共享」里的现成配置。',environments:'安装脚本在沙箱初始化时把工具装进隔离环境，例如指定版本的 Go、PHP、Node。建好后在「沙箱管理」里选用。',sandboxes:'沙箱决定 SOP 节点在什么隔离环境里执行，由 Dockerfile 和安装脚本组合而成。建好后在流程设置里选用；也可以直接用「共享」里的现成配置。'})[state.assetType]||''}
-function assetKindLabel(){return ({rules:'规则',skills:'技能',dockerfiles:'Dockerfile',environments:'环境安装脚本',sandboxes:'沙箱'})[state.assetType]||'资产'}
-function assetRefKindLabel(){return ({rules:'角色',skills:'角色',dockerfiles:'沙箱',environments:'沙箱',sandboxes:'流程'})[state.assetType]||'引用'}
+function assetKindLabel(){return ({rules:'规则',skills:'技能',verifiers:'Verifier',dockerfiles:'Dockerfile',environments:'环境安装脚本',sandboxes:'沙箱'})[state.assetType]||'资产'}
+function assetRefKindLabel(){return ({rules:'角色',skills:'角色',verifiers:'SOP',dockerfiles:'沙箱',environments:'沙箱',sandboxes:'流程'})[state.assetType]||'引用'}
 function assetReferenceNames(a){
   if(!a?.id)return [];
   if(state.assetType==='rules')return (state.data.agents||[]).filter(x=>(x.rules||[]).includes(a.id)).map(x=>x.name||x.id);
   if(state.assetType==='skills')return (state.data.agents||[]).filter(x=>(x.skills||[]).includes(a.id)).map(x=>x.name||x.id);
+  if(state.assetType==='verifiers')return (state.data.workflows||[]).filter(w=>w.projectId===a.projectId&&w.nodes?.some(n=>n.verification?.verifiers?.some(ref=>ref.verifierId===a.id))).map(w=>w.name||w.id);
   if(state.assetType==='dockerfiles')return (state.data.sandboxes||[]).filter(x=>x.dockerfileId===a.id).map(x=>x.name||x.id);
   if(state.assetType==='environments')return (state.data.sandboxes||[]).filter(x=>x.environmentId===a.id).map(x=>x.name||x.id);
   if(state.assetType==='sandboxes')return (state.data.workflows||[]).filter(x=>!catalogGeneric(x)&&x.sandboxProfileId===a.id).map(x=>x.name||x.id);
@@ -300,10 +307,11 @@ function environmentOptions(selected){const items=(state.data.environments||[]).
 function sandboxDriverOption(driver){return ['seatbelt','bwrap','native'].includes(driver)?'native':driver==='docker'?'docker':'local'}
 function syncSandboxDriverFields(select){const driver=select?.value||'local';select?.form?.querySelectorAll('[data-sandbox-drivers]').forEach(el=>{el.hidden=!el.dataset.sandboxDrivers.split(' ').includes(driver)})}
 function resolveAssetSaveIdentity(items,selectedID,requestedID){if(selectedID!=='__new__'){const existing=(items||[]).find(item=>item.id===selectedID);return existing?{id:existing.id,existing,created:false}:{error:'选中的资产已不存在，请刷新后重试'}}if((items||[]).some(item=>item.id===requestedID))return {error:'该标识已存在，请换一个标识，或回到列表打开已有资产修改'};return {id:requestedID,existing:null,created:true}}
-function assetPaneTabs(type=state.assetType){return ({rules:[['edit','编辑'],['preview','预览']],skills:[['files','文件']],dockerfiles:[['content','Dockerfile'],['files','构建上下文']],environments:[['script','install.sh'],['vars','环境变量'],['path','PATH']],sandboxes:[['env','环境变量']]})[type]||[['edit','编辑']]}
+function assetPaneTabs(type=state.assetType){return ({rules:[['edit','编辑'],['preview','预览']],skills:[['files','文件']],verifiers:[['script','验收配置']],dockerfiles:[['content','Dockerfile'],['files','构建上下文']],environments:[['script','install.sh'],['vars','环境变量'],['path','PATH']],sandboxes:[['env','环境变量']]})[type]||[['edit','编辑']]}
 function assetPaneHint(type=state.assetType){return ({rules:'支持 Markdown',skills:'每次上传都会完整替换现有文件',dockerfiles:'沙箱初始化时用库里这份 docker build',environments:'脚本把工具装进 $PREFIX',sandboxes:'驱动与执行环境在右侧设置，不要在这里保存凭证'})[type]||''}
 function assetMainPanesHTML(a,{creating,readonly}){
   const pane=(key,body)=>`<div class="asset-tabpanel" data-asset-pane="${key}" role="tabpanel">${body}</div>`;
+  if(state.assetType==='verifiers')return verifierAssetPane(a);
   if(state.assetType==='rules')return pane('edit',`<textarea name="content" class="asset-editor" rows="18" placeholder="写入必须遵守的行为和约束">${escapeHTML(a.content||'')}</textarea>`)+pane('preview',`<div class="asset-md markdown-body" data-asset-preview></div>`);
   if(state.assetType==='skills'){
     if(creating)return pane('files',`<div class="asset-empty is-inline"><b>先创建技能，再上传文件</b><p>支持文件夹、.zip 压缩包或单独的 SKILL.md。</p></div>`);
@@ -356,6 +364,7 @@ function renderAssetForm(a){
   f.querySelectorAll('[data-asset-tab]').forEach(b=>b.onclick=()=>setAssetTab(b.dataset.assetTab));
   setAssetTab(state.assetTab||tabs[0][0]);
   if(state.assetType==='rules')bindRuleGlobalPicker(a);
+  if(state.assetType==='verifiers')bindVerifierAssetForm(f);
   if(state.assetType==='sandboxes'){f.elements.driver.onchange=()=>syncSandboxDriverFields(f.elements.driver);syncSandboxDriverFields(f.elements.driver)}
   f.querySelectorAll('select.asset-select').forEach(sel=>window.enhanceSelect?.(sel));
   if(readonly)f.querySelectorAll('input,textarea,select,.repo-picker-tag').forEach(el=>{if(el.type!=='file')el.disabled=true});
@@ -673,7 +682,8 @@ async function saveAsset(e){e.preventDefault();const f=e.currentTarget,items=sta
   if(state.assetType==='dockerfiles')Object.assign(value,{content:f.elements.content.value,files:JSON.parse(f.elements.files.value||'{}')});
   if(state.assetType==='environments')Object.assign(value,{variables:JSON.parse(f.elements.variables.value||'{}'),pathEntries:lines(f.elements.pathEntries.value),installScript:f.elements.installScript.value});
   if(state.assetType==='sandboxes'){const driver=f.elements.driver.value,sandbox={driver,environment:JSON.parse(f.elements.environment.value||'{}')};if(driver==='docker')Object.assign(sandbox,{dockerfileId:f.elements.dockerfileId.value,readOnlyRootFS:f.elements.readOnlyRootFS.checked});if(driver==='native')Object.assign(sandbox,{environmentId:f.elements.environmentId.value});Object.assign(value,sandbox)}
-  const endpoints={rules:'rules',skills:'skills',dockerfiles:'dockerfiles',environments:'environments',sandboxes:'sandboxes'};await api(`/api/${endpoints[state.assetType]}`,{method:'PUT',body:JSON.stringify(value)});const i=items.findIndex(x=>x.id===value.id);if(state.assetType==='skills'&&existing)value={...existing,...value,fileRefs:existing.fileRefs||[],content:existing.content||'',files:existing.files||{}};if(i>=0)items[i]=value;else items.push(value);state.selectedAsset=value.id;state.assetDirty=false;
+  if(state.assetType==='verifiers')Object.assign(value,verifierAssetValues(f,existing));
+  const endpoints={rules:'rules',skills:'skills',verifiers:'verifiers',dockerfiles:'dockerfiles',environments:'environments',sandboxes:'sandboxes'};const result=await api(`/api/${endpoints[state.assetType]}`,{method:'PUT',body:JSON.stringify(value)});if(state.assetType==='verifiers')value=result;const i=items.findIndex(x=>x.id===value.id);if(state.assetType==='skills'&&existing)value={...existing,...value,fileRefs:existing.fileRefs||[],content:existing.content||'',files:existing.files||{}};if(i>=0)items[i]=value;else items.push(value);if(state.assetType==='verifiers')state.data.verifiers=items;state.selectedAsset=value.id;state.assetDirty=false;
   if(identity.created){history.replaceState(history.state,'',assetViewHash(state.assetType,value.id));state.assetDetailKey='';renderAssets()}
   else{renderAssetDetailHead(value);refreshAssetAside(value)}
   renderWorkflowMeta();renderProperties();toast(identity.created?'资产已创建':'资产修改已保存');

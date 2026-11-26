@@ -142,6 +142,8 @@ func classifyAssistantFailureText(f domain.AssistantFailure, err error, text str
 		return false
 	}
 	switch {
+	case has("本机登录不可用", "本机登录状态"):
+		f.Code, f.Phase, f.Message = "LOCAL_LOGIN_UNAVAILABLE", "setup", strings.TrimPrefix(text, runtime.ErrConversationNotStarted.Error()+": ")
 	case has("insufficient_quota", "quota exceeded", "credit balance", "billing", "额度不足", "余额不足"):
 		f.Code, f.Phase, f.Message, f.Suggestion = "QUOTA_EXCEEDED", "provider", "模型服务额度不足，无法继续生成", "请检查模型服务的余额或额度。"
 	case has("rate limit", "rate_limit", "too many requests", "http 429", "status 429", "status code 429", "status=429"):
@@ -151,6 +153,9 @@ func classifyAssistantFailureText(f domain.AssistantFailure, err error, text str
 		var credential assistantCredentialError
 		if errors.As(err, &credential) {
 			f.Message = credential.Error()
+			if credential.localLogin {
+				f.Suggestion = runtime.RunnerLocalLoginHint(credential.engine) + " 后重试。"
+			}
 		}
 		if err == errAssistantCredentialRejected {
 			f.Message = err.Error()

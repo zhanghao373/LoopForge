@@ -1,0 +1,102 @@
+#launchSOP[hidden],
+#runEnvironmentField[hidden],
+.sop-launch-settings[hidden],
+.sop-launch-settings [hidden] {
+  display: none !important;
+}
+#runModal .modal-card {
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+}
+.sop-launch-settings {
+  margin-top: 14px;
+}
+.sop-launch-settings .modal-hint {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.sop-launch-settings details {
+  margin-bottom: 12px;
+}
+.sop-launch-settings summary {
+  cursor: pointer;
+}
+.sop-launch-directory-field,
+.sop-launch-directory-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.sop-launch-directory-field input {
+  min-width: 0;
+  flex: 1;
+}
+.sop-launch-directory-browser {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.sop-launch-directory-toolbar span {
+  flex: 1;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+#sopLaunchDirectoryList {
+  display: grid;
+  max-height: 150px;
+  overflow-y: auto;
+}
+#sopLaunchDirectoryList button {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#sopLaunchSelectedDirectories {
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+#sopLaunchSelectedDirectories li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+#sopLaunchSelectedDirectories span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.sop-launch-nodes {
+  margin-block: 12px;
+}
+.sop-launch-nodes summary {
+  cursor: pointer;
+}
+.sop-launch-node-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 8px;
+}
+.sop-launch-node-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 4px 12px;
+}
+.sop-launch-node-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+}
+.sop-launch-node-list input {
+  width: auto;
+  margin: 0;
+}

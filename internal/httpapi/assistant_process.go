@@ -23,16 +23,17 @@ import (
 
 type assistantHelperExecutionKey struct{}
 type assistantHelperExecution struct {
-	h      *assistantHandlers
-	owner  int64
-	runner string
+	h          *assistantHandlers
+	owner      int64
+	runner     string
+	localLogin bool
 }
 
-func (h *assistantHandlers) helperExecutionContext(ctx context.Context, owner int64, target *domain.AssistantExecutionTarget) context.Context {
+func (h *assistantHandlers) helperExecutionContext(ctx context.Context, owner int64, target *domain.AssistantExecutionTarget, localLogin ...bool) context.Context {
 	if target == nil || target.RunnerID == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, assistantHelperExecutionKey{}, assistantHelperExecution{h: h, owner: owner, runner: target.RunnerID})
+	return context.WithValue(ctx, assistantHelperExecutionKey{}, assistantHelperExecution{h: h, owner: owner, runner: target.RunnerID, localLogin: len(localLogin) > 0 && localLogin[0]})
 }
 
 func helperCLIExecution(ctx context.Context, root string) func(context.Context, string, runtime.CommandSpec, runtime.RunCredentials, runtime.EventSink) (string, error) {
@@ -40,7 +41,7 @@ func helperCLIExecution(ctx context.Context, root string) func(context.Context, 
 	if !ok {
 		return nil
 	}
-	s := &AgentToolSession{ChatOwnerID: bound.owner, ChatSessionID: "helper-" + newAssistantSessionID(), ExecutionRunnerID: bound.runner, RuntimeMode: domain.AssistantModePlatform}
+	s := &AgentToolSession{ChatOwnerID: bound.owner, ChatSessionID: "helper-" + newAssistantSessionID(), ExecutionRunnerID: bound.runner, localLogin: bound.localLogin, RuntimeMode: domain.AssistantModePlatform}
 	return bound.h.conversationExecutor(s, root)
 }
 
@@ -151,6 +152,9 @@ func (h *assistantHandlers) conversationExecutor(s *AgentToolSession, root strin
 			if !runner.SupportsConversationCLI() {
 				return preDispatchError(fmt.Errorf("执行机器需升级至 %s", domain.RunnerVersionConversationCLI))
 			}
+			if req.Command != nil && req.Command.LocalLogin && !runner.SupportsLocalConversationAuth() {
+				return preDispatchError(fmt.Errorf("本机登录需要执行机器升级至 %s", domain.RunnerVersionLocalConversationAuth))
+			}
 			raw, err := json.Marshal(req)
 			if err != nil {
 				return preDispatchError(err)
@@ -211,7 +215,17 @@ func (h *assistantHandlers) conversationExecutor(s *AgentToolSession, root strin
 		if s.RuntimeMode == domain.AssistantModeWorkspace {
 			command, credentials = h.bindWorkspaceGit(ctx, s, command, credentials)
 		}
+		if s.localLogin {
+			// Local credentials are sourced by the runner. Keep only Cursor's
+			// saved model metadata, which is used to resolve effort variants.
+			credentials.Codex = runtime.ProviderCredential{}
+			credentials.ClaudeCode = runtime.ProviderCredential{}
+			if command.Provider == runtime.AgentCLICursor {
+				credentials.AgentCLI = map[string]runtime.ProviderCredential{command.Provider: {Models: credentials.AgentCLI[command.Provider].Models}}
+			}
+		}
 		wire := runtime.ConversationCommandFor(command, credentials)
+		wire.LocalLogin = s.localLogin
 		if s.ExecutionRunnerID != "" {
 			wire.Argv[0] = assistantEngineBinary(command.Provider)
 		}

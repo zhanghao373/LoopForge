@@ -193,6 +193,16 @@ func TestRunSandboxKeysAndRequirements(t *testing.T) {
 	if !requirements.PrivateHome || !requirements.BunFS || len(requirements.CLIStates) != 1 || resources.Dockerfile.ID != "d" || resources.Environment.ID != "e" {
 		t.Fatalf("requirements=%+v resources=%+v", requirements, resources)
 	}
+	task.Invocation = &domain.RunnerInvocation{CredentialSource: domain.RuntimeAuthLocal}
+	local, _ := taskSandboxSpec(task)
+	if len(local.CLIStates) != 2 || local.CLIStates[1].Directory != ".codex" {
+		t.Fatalf("personal runner did not preserve the local Codex login with a frozen spec: %+v", local)
+	}
+	task.Invocation.CredentialSource = domain.RuntimeAuthPersonal
+	personal, _ := taskSandboxSpec(task)
+	if len(personal.CLIStates) != 1 {
+		t.Fatalf("API key invocation was given local CLI state: %+v", personal)
+	}
 	key, id, shared := runSandboxKey(task, requirements, resources)
 	if !shared || key == "" || !strings.HasPrefix(id, "rt-run-run-id-") {
 		t.Fatalf("key=%q id=%q shared=%v", key, id, shared)

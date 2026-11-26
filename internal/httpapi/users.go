@@ -8,6 +8,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,6 +38,10 @@ func (h *usersHandlers) user(c *gin.Context) {
 	}
 	var body repo.UserCredentialUpdate
 	if !decode(c, &body) {
+		return
+	}
+	if runtime.PersonalExecutorsOnly() && (body.CodeBuddyAPIKey != "" || body.CodeBuddyInternetEnvironment != nil) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "本机模式仅支持 Codex、Cursor CLI 和 Claude Code 的模型凭证"})
 		return
 	}
 	if raw := body.CodeBuddyInternetEnvironment; raw != nil {

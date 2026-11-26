@@ -63,7 +63,7 @@ Both paths track the same **requirements**, so every change, whether made in cha
 
 Ask a coding agent to "fix this bug" and the result depends on that run. It might skip the plan, forget the tests, review its own code, or stop halfway without anyone noticing. That's fine for a demo, but it isn't how a team ships.
 
-- **Repeatable.** Same SOP, same stages, same checks for every requirement. Start from built-in backend, frontend, bug-fix and product SOPs.
+- **Repeatable.** Same SOP, same stages, same checks for every requirement. Start from the built-in requirement development or defect repair SOP.
 - **Separated roles.** Planning, implementation, review and testing each get their own prompt, executor, model, rules, Skills and MCP tools. A role works as an SOP node or as a subagent in chat.
 - **Human in the loop.** Approval gates where they matter. Read the report, approve, or send the work back to a chosen step.
 - **Observable and resumable.** Node status, tool traces, logs and artifacts in one place. Pause, retry a failed step, or rerun from any node.
@@ -112,7 +112,7 @@ New accounts join the **LoopForge demo project**, which includes an SOP made onl
 
 <br>
 
-- **Executors.** Pick one of ten CLIs beside the home composer, then a model. Every SOP role can choose its executor independently (built-in roles default to CodeBuddy). Requirement clarification, AI notification summaries, Bot replies and run evals currently use CodeBuddy, so their model pickers list CodeBuddy models only and the server refuses a model of another CLI instead of switching it to CodeBuddy; scheduled assistant tasks run on the CLI the task selects.
+- **Executors.** Pick one of ten CLIs beside the home composer, then a model. Every SOP role can choose its executor independently (the two built-in SOPs default to Codex). Requirement clarification, AI notification summaries, Bot replies and run evals currently use CodeBuddy, so their model pickers list CodeBuddy models only and the server refuses a model of another CLI instead of switching it to CodeBuddy; scheduled assistant tasks run on the CLI the task selects.
 
   | Executor | Credentials | Installation |
   | --- | --- | --- |
@@ -121,11 +121,12 @@ New accounts join the **LoopForge demo project**, which includes an SOP made onl
   | **Claude Code** | Personal key; a connected execution machine can use its local login | Installed from npm on first use, then cached |
   | **OpenCode · Kimi Code · Pi** | Personal key only | Installed from npm on first use, then cached |
   | **DeepSeek Harness** | Personal key only | In the Docker image |
-  | **Cursor CLI · Antigravity** | Personal key only | Provider installer on first chat use; not installed into SOP sandboxes |
+  | **Cursor CLI** | Personal key or local login on a connected execution machine | Provider installer on first chat use. Preinstall it in SOP sandboxes. |
+  | **Antigravity** | Personal key only | Provider installer on first chat use. Preinstall it in SOP sandboxes. |
   | **ZCode** | Personal key only | Not bundled; install it on the service or execution machine PATH |
 
-  The seven agent CLIs after Claude Code keep their model and MCP configuration in a private home directory per run, so they always use the responsible user's own key and Base URL from personal settings, even on a connected execution machine. When rolling them out to a team, each member configures their own credentials. First-use installs need npm or provider access; [native deployments](docs/deployment.md#workers-and-runners) need the CLI for the executor you choose.
-- **GitHub is optional.** All built-in generic SOPs run without a repository: product SOPs deliver documents, and new frontend/backend projects deliver source files in the task workspace. Bug fixes still need source code and reproduction details. Connect a repository when you work on existing code or want PRs.
+  Codex, Claude Code, and Cursor CLI can use the local login configured for the execution machine. SOPs using personal credentials get the key and Base URL from the responsible user's settings. First-use installs need npm or provider access; [native deployments](docs/deployment.md#workers-and-runners) need the CLI for the executor you choose.
+- **GitHub is optional.** Requirement development can produce a design or start a new codebase in the task workspace. Defect repair needs source code and reproduction details. Connect a repository for work on existing code.
 - **Delivering to a repository.** Choose **Connect GitHub** in personal settings, approve the device code on GitHub and pick your repository (the LoopForge OAuth App is built in; no PAT required, manual PAT entry still works). Set executor credentials (or bind a local execution machine), then either run a project SOP or ask Main Bot to change the code and submit a PR/MR.
 - **Sandboxes.** In the default Compose installation, SOP runs and conversation workspaces both use Docker sandbox containers started through the host Docker socket. Default sandboxes reuse the installed runtime image, so nothing extra is built after installation; custom Dockerfiles still build their own images. Docker socket access grants control of the host daemon, so this setup is for trusted teams, not untrusted multi-tenant isolation. See [deployment boundaries](docs/deployment.md#accounts). Re-running the installer keeps your data.
 - **Accounts and access.** New installations listen on all interfaces (existing bind settings are kept) and are designed for a trusted team: signed-in users can read project data across the instance, and teammates can sign up from the login page (`AGENTFLOW_ALLOW_SIGNUP=false` in `.env` turns that off). Read the [account and access model](docs/deployment.md#accounts) before exposing it beyond your team.
@@ -175,7 +176,7 @@ Each node declares its artifacts and dependencies, and the engine starts each st
 | --- | --- |
 | **Chat workbench** | Main Bot with per-conversation executor, model and permission mode. `@` references for roles, skills, requirements, SOPs and repositories. Messages queue while a reply runs; *Steer* interrupts and sends now. Generated files open in a side panel with preview, source and download. |
 | **Conversation workspaces** | On-demand Docker sandboxes with the project's repositories checked out, project roles as native subagents, and direct control of a running SOP workspace: pause, resume or take over. |
-| **SOP designer** | Visual canvas with Agent, Script, Human gate, Sub-SOP and Preview nodes, rework-on-failure edges, validation, version history and publishing. Built-in backend, frontend, bug-fix and product SOPs. |
+| **SOP designer** | Visual canvas with Agent, Script, Human gate, Sub-SOP and Preview nodes, rework-on-failure edges, validation, version history and publishing. Requirement development and defect repair templates with per-run node selection. |
 | **Roles** | Reusable definitions: prompt, executor, model, rules, Skills, MCP tools, artifacts and gates, shared across SOP nodes and chat subagents. |
 | **Requirement → delivery** | Requirements tracked end to end, whether shipped by an SOP or straight from chat, with PR/MR status tracking, merge detection and direct-branch merges. |
 | **Runs & approvals** | Live node status, tool traces, worker logs, per-node artifact snapshots and workspace previews. A single **Needs review** inbox for every gate waiting on you. |
@@ -184,11 +185,7 @@ Each node declares its artifacts and dependencies, and the engine starts each st
 | **Execution environments** | Platform workers, Docker sandboxes, or a connected local execution machine using your own tools and repositories. |
 | **Team-ready** | Password accounts, projects and members, light/dark/system themes, an OpenAPI-described HTTP and MCP API. Management pages are in English and Chinese; the chat workbench is Chinese for now. |
 
-<p align="center">
-  <img src="docs/assets/readme/sops-en.svg" alt="The Templates page listing the four built-in SOPs: backend delivery, frontend delivery, product proposal and bug fix" width="100%">
-</p>
-
-<p align="center"><sub>Built-in SOPs are read-only blueprints; copy one into your project to run and edit it.</sub></p>
+Start from either built-in blueprint or copy it to edit the project version. Requirement development includes frontend and backend presets, and both SOPs let you choose individual nodes when launching a run.
 
 ## LoopForge Local
 

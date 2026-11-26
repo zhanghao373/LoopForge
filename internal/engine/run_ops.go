@@ -800,6 +800,9 @@ func (e *Engine) resumePaused(runID, humanContext string, expected ...NodeExpect
 		if !isScriptNode(nodes[id]) {
 			nr.Feedback = strings.TrimSpace(restoredFeedback + "\n" + note)
 			nr.ResumeSessionID = strings.TrimSpace(nr.SessionID)
+			if nr.Guidance != "" {
+				nr.Activity = guidanceRestartActivity
+			}
 		}
 	}
 	r.CancelRequested = false
@@ -848,13 +851,27 @@ func (e *Engine) RefreshRunSOP(runID string) error {
 	latest.SandboxProfileID = r.WorkflowSnapshot.SandboxProfileID
 	latest.SandboxSnapshot = r.WorkflowSnapshot.SandboxSnapshot
 	var err error
+	latest, err = latest.SelectNodes(r.WorkflowSnapshot.DisabledNodeIDs)
+	if err != nil {
+		return err
+	}
 	latest, err = domain.AttachPreviewBuild(latest)
 	if err != nil {
 		return err
 	}
+	latest.VerifierSnapshots, err = e.repo.WorkflowVerifiers(latest, r.WorkflowSnapshot.VerifierSnapshots)
+	if err != nil {
+		return err
+	}
+	previousNodes := make(map[string]domain.WorkflowNode, len(r.WorkflowSnapshot.Nodes))
+	for _, node := range r.WorkflowSnapshot.Nodes {
+		previousNodes[node.ID] = node
+	}
 	for _, node := range latest.Nodes {
 		if r.Nodes[node.ID] == nil {
 			r.Nodes[node.ID] = &domain.NodeRun{NodeID: node.ID, Status: "pending"}
+		} else if r.Nodes[node.ID].Status != "succeeded" && previousNodes[node.ID].ExecutorOverrideID != node.ExecutorOverrideID {
+			clearNodeExecutorSession(r.Nodes[node.ID])
 		}
 	}
 	r.WorkflowSnapshot = latest
@@ -981,7 +998,11 @@ func overlayLatestNodeBindings(st *repo.Store, r *domain.Run, nodeIDs map[string
 		if !ok {
 			continue
 		}
+		if n.ExecutorOverrideID != src.ExecutorOverrideID {
+			clearNodeExecutorSession(r.Nodes[n.ID])
+		}
 		n.AgentID, n.ExecutorID = src.AgentID, src.ExecutorID
+		n.ExecutorOverrideID = src.ExecutorOverrideID
 		n.ArtifactOutputs = src.ArtifactOutputs
 		n.OnFailure, n.RejectTo = src.OnFailure, src.RejectTo
 		n.RetryStrategy, n.CarryOver = src.RetryStrategy, src.CarryOver
@@ -995,6 +1016,18 @@ func overlayLatestNodeBindings(st *repo.Store, r *domain.Run, nodeIDs map[string
 	if latest.Version > r.WorkflowSnapshot.Version {
 		r.WorkflowSnapshot.Version = latest.Version
 	}
+}
+
+func clearNodeExecutorSession(state *domain.NodeRun) {
+	if state == nil {
+		return
+	}
+	if continuingInterruptedAttempt(state) {
+		state.Activity = ""
+	}
+	state.SessionID = ""
+	state.ResumeSessionID = ""
+	state.A2ATaskID = ""
 }
 
 func resumeNodeID(r domain.Run) string {

@@ -273,11 +273,11 @@ curl -u "$AGENTFLOW_USER:$AGENTFLOW_PASS" -X POST \
 
 ## Run 评测
 
-只评测终态 run（`succeeded|failed|cancelled`）。使用当前登录用户的 CodeBuddy Key 和助手模型目录，不自动触发。
+仅支持手动评测终态 Run（`succeeded|failed|cancelled`）。本地模式使用当前用户的默认执行机器运行 Codex。云端模式使用当前用户的 CodeBuddy Key 和助手模型目录。
 
 ### `POST /api/runs/{runId}/eval`
 
-请求 `{ "model": "default" }`，`model` 可选。成功 `202` 返回评测记录（`status=running`）。进行中的 run 返回 `409`；未登录 `401`；未配置个人 CodeBuddy Key `400`。
+可选字段为 `model` 和 `feedback`。本地默认模型为 `codex:default`。反馈最多 2,000 字，作为本次评测的诊断重点随评测记录保存。成功返回 `202` 和 `status=running` 的评测记录。运行尚未结束或已有评测进行中时返回 `409`，未登录返回 `401`，执行机器或凭证不可用时返回 `400`。
 
 ### `GET /api/runs/{runId}/eval`
 

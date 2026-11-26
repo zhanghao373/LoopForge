@@ -243,15 +243,22 @@ func assistantEngineMissingKey(engine string) string {
 	return fmt.Sprintf("请先在个人配置中配置 %s API Key 后再使用 %s 模型", assistantEngineLabel(engine), assistantEngineLabel(engine))
 }
 
-// assistantTurnUser resolves the identity and model of one chat turn. Codex
-// and Claude Code models need the caller's own key for that CLI and are never
-// sponsored; CodeBuddy models keep the sponsor fallback. The returned user
-// still carries a lent CodeBuddy key when there is one, so approval reviews
-// keep working on Codex / Claude Code turns.
-func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) (domain.User, string, string) {
-	engine, _ := assistantModelEngine(model)
+// assistantTurnUser resolves the turn's identity and credential requirement.
+// A non-CodeBuddy turn can still borrow CodeBuddy for independent reviews.
+func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, localLogin bool) (domain.User, string, string) {
+	engine, modelID := assistantModelEngine(model)
+	if localLogin {
+		if modelID == "" {
+			model = engine + ":default"
+		} else if !assistantValidEngineModel(modelID) {
+			return stored, "", "模型 ID 无效"
+		}
+	}
+	if runtime.PersonalExecutorsOnly() && !runtime.IsPersonalExecutor(engine) {
+		return stored, "", "请选择 Codex、Cursor 或 Claude Code"
+	}
 	if engine != assistantEngineCodeBuddy {
-		if key, _ := assistantEngineCredential(stored, engine); key == "" {
+		if key, _ := assistantEngineCredential(stored, engine); !localLogin && key == "" {
 			return stored, "", assistantEngineMissingKey(engine)
 		}
 		user, _, _ := h.assistantChatUser(stored)
@@ -275,12 +282,12 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string) 
 // models. Any well-formed model ID is accepted for a configured CLI: the
 // gateway behind the Base URL decides what exists, and a discovery outage
 // must not silently move the conversation back to CodeBuddy.
-func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user domain.User) string {
+func assistantAllowedUserModel(id string, catalog assistantModelCatalog, user domain.User, localLogin bool) string {
 	engine, model := assistantModelEngine(id)
 	if engine == assistantEngineCodeBuddy {
 		return assistantAllowedModel(id, catalog)
 	}
-	if key, _ := assistantEngineCredential(user, engine); key == "" || !assistantValidEngineModel(model) {
+	if key, _ := assistantEngineCredential(user, engine); (!localLogin && key == "") || !assistantValidEngineModel(model) {
 		return catalog.Default
 	}
 	return engine + ":" + model
@@ -306,9 +313,12 @@ func assistantScheduledModel(id string, catalog assistantModelCatalog) string {
 // An empty catalog asks the Base URL for its published models, then falls
 // back to the built-in executor catalog. Gemini publishes no OpenAI-style
 // list, so an empty catalog there uses the built-in models directly.
-func assistantEngineModels(ctx context.Context, user domain.User) []assistantModel {
+func assistantEngineModels(ctx context.Context, user domain.User, engines ...string) []assistantModel {
+	if len(engines) == 0 {
+		engines = assistantCLIEngines()
+	}
 	var out []assistantModel
-	for _, engine := range assistantCLIEngines() {
+	for _, engine := range engines {
 		key, baseURL := assistantEngineCredential(user, engine)
 		if key == "" {
 			continue

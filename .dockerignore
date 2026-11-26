@@ -28,3 +28,6 @@ e2e/test-results
 **/__pycache__
 **/.venv
 **/*.pyc
+
+# The personal deployment contains credentials and runtime state.
+local_sop/

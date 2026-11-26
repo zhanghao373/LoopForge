@@ -227,6 +227,8 @@ type RunEvalRecord struct {
 	Score      int           `json:"score"`
 	Passed     bool          `json:"passed"`
 	Model      string        `json:"model,omitempty"`
+	RunnerID   string        `json:"runnerId,omitempty"`
+	Feedback   string        `json:"feedback,omitempty"`
 	Policy     RunEvalPolicy `json:"policy"`
 	Facts      RunEvalFacts  `json:"facts,omitempty"`
 	Result     RunEvalResult `json:"result,omitempty"`

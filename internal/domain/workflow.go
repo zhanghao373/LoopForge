@@ -47,12 +47,16 @@ type WorkflowNode struct {
 	PlanItemID   string   `json:"planItemId,omitempty"`
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
-	Type         string   `json:"type"` // agent, script, approval, sop
+	Type         string   `json:"type"`                  // agent, script, approval, sop
+	LaunchGroup  string   `json:"launchGroup,omitempty"` // frontend, backend, or shared (empty)
 	// MetricStage explicitly assigns this node's execution time to a Loop phase.
 	// Empty means a legacy workflow without a classification; "none" opts out.
 	MetricStage string `json:"metricStage,omitempty"` // clarification, development, testing, none
 	AgentID     string `json:"agentId,omitempty"`
 	ExecutorID  string `json:"executorId,omitempty"`
+	// ExecutorOverrideID takes precedence over the role. ExecutorID remains
+	// the fallback for workflows saved before the node had an override.
+	ExecutorOverrideID string `json:"executorOverrideId,omitempty"`
 	// SOPWorkflowID is the referenced workflow when Type is "sop".
 	SOPWorkflowID string `json:"sopWorkflowId,omitempty"`
 	// RunOnWorkspaceRebuild replays this script when restoring an already-used environment.
@@ -62,6 +66,7 @@ type WorkflowNode struct {
 	ExecutionScope        string             `json:"executionScope,omitempty"` // run, repositories; empty = run
 	Command               string             `json:"command,omitempty"`        // legacy command-node payload
 	ArtifactOutputs       []ArtifactContract `json:"artifactOutputs,omitempty"`
+	Verification          *NodeVerification  `json:"verification,omitempty"`
 	RejectTo              string             `json:"rejectTo,omitempty"`
 	OnFailure             string             `json:"onFailure,omitempty"`     // fail, reject
 	RetryStrategy         string             `json:"retryStrategy,omitempty"` // targeted_fix, full_redo
@@ -137,6 +142,7 @@ type GroupSOPHandoff struct {
 }
 
 type WorkflowDefinition struct {
+	DisabledNodeIDs   []string              `json:"disabledNodeIds,omitempty"` // run snapshot only
 	GroupSOPHandoff   *GroupSOPHandoff      `json:"groupSopHandoff,omitempty"`
 	GroupCompletion   *GroupCompletion      `json:"groupCompletion,omitempty"`
 	GroupMembers      []string              `json:"groupMembers,omitempty"`
@@ -169,7 +175,8 @@ type WorkflowDefinition struct {
 	// SandboxSnapshot is populated only on Run.WorkflowSnapshot. It freezes
 	// the resolved profile plus Dockerfile/environment payload so retries can
 	// reconstruct the original environment after catalog definitions change.
-	SandboxSnapshot *RunnerSandboxSpec `json:"sandboxSnapshot,omitempty"`
+	SandboxSnapshot   *RunnerSandboxSpec            `json:"sandboxSnapshot,omitempty"`
+	VerifierSnapshots map[string]VerifierDefinition `json:"verifierSnapshots,omitempty"` // run snapshot only
 	// Preview is the optional frontend delivery contract. It is frozen into
 	// the run snapshot so later SOP edits cannot change an in-flight archive.
 	Preview   *PreviewContract `json:"preview,omitempty"`

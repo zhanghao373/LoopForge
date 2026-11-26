@@ -131,6 +131,9 @@ func (c CommandSpec) WithPrivateHomeDir(dir string) CommandSpec {
 		env["CLAUDE_CONFIG_DIR"] = filepath.Join(dir, ".claude")
 		_ = os.MkdirAll(env["CLAUDE_CONFIG_DIR"], 0o700)
 	}
+	if c.Provider == AgentCLICursor {
+		env["CURSOR_CONFIG_DIR"] = filepath.Join(dir, ".cursor")
+	}
 	if c.Provider == "codebuddy" {
 		env["CODEBUDDY_CONFIG_DIR"] = filepath.Join(dir, ".codebuddy")
 		_ = os.MkdirAll(env["CODEBUDDY_CONFIG_DIR"], 0o700)

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +68,28 @@ func (e *Engine) cancelRunnerTasksForRun(runID string) error {
 		e.NotifyRunnerTaskChanged(id)
 		if task, ok := e.repo.RunnerTask(id); ok {
 			e.notifyRunnerControl(task.LeaseOwner, id, task.DesiredState)
+		}
+	}
+	return nil
+}
+
+// A canceled invocation may still be shutting down on its execution machine.
+// Drain only this node's tasks before starting another writer in its workspace.
+func (e *Engine) stopGuidedNodeRunnerTasks(ctx context.Context, runID, nodeID string) error {
+	tasks, err := e.repo.ActiveRunnerTasksForRun(runID)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.NodeID != nodeID {
+			continue
+		}
+		if err := e.repo.CancelRunnerTask(task.ID, time.Now().UTC()); err != nil {
+			return err
+		}
+		e.notifyRunnerControl(task.LeaseOwner, task.ID, domain.RunnerTaskDesiredCancel)
+		if _, err := e.awaitRunnerTask(ctx, task.ID, nil); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -181,6 +204,9 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 	}
 	runner, _ := e.repo.Runner(runnerID)
 	authMode := runner.RuntimeAuthMode(ex.Kind)
+	if ex.Kind == runtime.AgentCLICursor && authMode == domain.RuntimeAuthLocal && !runner.SupportsLocalConversationAuth() {
+		return "", fmt.Errorf("Cursor 本机登录需要执行机器升级至 %s", domain.RunnerVersionLocalConversationAuth)
+	}
 	resumeSessionID := resolveRunnerResumeSessionID(run, node.ID, options)
 	invocation := &domain.RunnerInvocation{
 		ArchivedFiles:    e.legacyArchivedWorkspaceFiles(run, node.ID),
@@ -198,6 +224,9 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 	}
 	if strings.TrimSpace(options.GateResultPath) != "" {
 		invocation.Artifacts = append(invocation.Artifacts, gateResultContract(options.GateResultPath))
+	}
+	if authMode == domain.RuntimeAuthLocal && ex.Kind == runtime.AgentCLICursor {
+		invocation.AgentCLIModels = sb.credentialSnapshot().AgentCLI[ex.Kind].Models
 	}
 	if authMode == domain.RuntimeAuthPersonal {
 		switch ex.Kind {
@@ -245,6 +274,11 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 		invocation.RecoverOutputs = normalizeExecutionScope(node.ExecutionScope) != domain.ExecutionScopeRepositories
 	}
 	invocation.MCPCallServers = e.resolveScriptMCPAssets(run.ExecutionContext.ProjectID, run.ExecutionContext.ResponsibleUserID).MCPServers
+	if paths := domain.LocalSourceSelection(invocation.LocalSourcePath, invocation.LocalSourcePaths); len(paths) > 1 {
+		prompt += "\n\nThe selected local sources are in these paths under the current workspace: " +
+			strings.Join(domain.LocalSourceDirectories(paths), ", ") +
+			". The Git baseline is at the workspace root. Use paths relative to that root for patches and workflow artifacts."
+	}
 	task := domain.RunnerTask{
 		ID:          fmt.Sprintf("rt-%d-%s", time.Now().UnixNano(), safeRunnerPath(node.ID)),
 		RunnerID:    runnerID,
@@ -335,6 +369,8 @@ func bindRunnerRepositories(invocation *domain.RunnerInvocation, run domain.Run,
 	if invocation == nil {
 		return
 	}
+	invocation.LocalSourcePath = run.ExecutionContext.LocalSourcePath
+	invocation.LocalSourcePaths = run.ExecutionContext.LocalSourcePaths
 	invocation.GitUserName = strings.TrimSpace(gitUserName)
 	invocation.GitUserEmail = strings.TrimSpace(gitUserEmail)
 	if strings.TrimSpace(run.Repository.CloneURL) != "" && len(run.Repositories) == 0 {
@@ -512,7 +548,7 @@ func (e *Engine) validateExecutionReconnect(run domain.Run, nodeID string) error
 		}
 		provider := "terminal"
 		if node.Type != "script" && node.Type != "command" && node.Type != "approval" {
-			agent, found := e.repo.Agent(node.AgentID)
+			agent, found := workflowAgent(e.repo, run.WorkflowSnapshot, node.AgentID)
 			if !found {
 				return fmt.Errorf("无法重连原执行环境：agent %s 不存在", node.AgentID)
 			}
@@ -521,6 +557,9 @@ func (e *Engine) validateExecutionReconnect(run domain.Run, nodeID string) error
 				return fmt.Errorf("无法重连原执行环境：%w", err)
 			}
 			provider = executor.Kind
+		}
+		if provider == domain.A2AExecutorID {
+			return nil
 		}
 		if !runner.SupportsProvider(provider) {
 			return fmt.Errorf("无法重连原执行环境：执行机器 %s 不再提供 %s", runnerID, provider)
@@ -611,7 +650,7 @@ func (e *Engine) queueRunnerPreviewArchive(run domain.Run, spec domain.RunnerPre
 // `git push` otherwise starts with prompts disabled and no credentials.
 func (e *Engine) dispatchRunnerCommand(ctx context.Context, runnerID, runID, nodeID, workspace, command string, gateSink runtime.EventSink) (string, error) {
 	task := domain.RunnerTask{
-		ID:          fmt.Sprintf("rt-%d-gate", time.Now().UnixNano()),
+		ID:          "rt-" + rand.Text() + "-gate",
 		RunnerID:    runnerID,
 		Provider:    "terminal",
 		Command:     command,

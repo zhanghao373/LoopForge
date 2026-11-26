@@ -90,9 +90,12 @@ func (h *runsHandlers) runs(c *gin.Context) {
 	}
 	if r.Method == http.MethodPost {
 		var req struct {
-			WorkflowID string `json:"workflowId"`
-			Input      string `json:"input"`
-			ProjectID  string `json:"projectId"`
+			WorkflowID      string            `json:"workflowId"`
+			Input           string            `json:"input"`
+			ProjectID       string            `json:"projectId"`
+			RepositoryID    string            `json:"repositoryId"`
+			DisabledNodeIDs []string          `json:"disabledNodeIds"`
+			Execution       *sopLaunchRequest `json:"execution"`
 		}
 		if !decode(c, &req) {
 			return
@@ -125,16 +128,59 @@ func (h *runsHandlers) runs(c *gin.Context) {
 			return
 		}
 		var repositories []domain.RepositoryContext
-		if wf, ok := h.repo.Workflow(req.WorkflowID); ok && wf.Generic && strings.TrimSpace(project.DefaultRepositoryID) != "" {
-			repositoryID := strings.TrimSpace(project.DefaultRepositoryID)
+		execution := domain.TelemetryContext{ProjectID: req.ProjectID, ResponsibleUserID: responsibleUserID}
+		repositoryID := strings.TrimSpace(req.RepositoryID)
+		wf, workflowExists := h.repo.Workflow(req.WorkflowID)
+		if !workflowExists {
+			respond(c, fmt.Errorf("workflow not found"))
+			return
+		}
+		wf, err := wf.SelectNodes(req.DisabledNodeIDs)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Execution != nil {
+			current, loggedIn := h.requestUser(r, true)
+			if !loggedIn {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录"})
+				return
+			}
+			if !catalogCanUseWorkflowInProject(wf, project.ID) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "当前项目无法运行该 SOP"})
+				return
+			}
+			hasLocalSources := len(req.Execution.localSources()) > 0
+			if repositoryID != "" && hasLocalSources {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "只可选择一种代码来源"})
+				return
+			}
+			if repositoryID == "" && !hasLocalSources && sopLaunchNeedsSource(wf) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "此 SOP 需要本机目录或 Git 仓库"})
+				return
+			}
+			if strings.TrimSpace(req.Input) == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "请填写任务输入"})
+				return
+			}
+			var err error
+			execution, err = h.resolveSOPLaunch(r.Context(), *req.Execution, project.ID, wf, current.ID)
+			if err != nil {
+				c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+				return
+			}
+		} else if (wf.Generic || wf.HasSelectableNodes()) && repositoryID == "" {
+			repositoryID = strings.TrimSpace(project.DefaultRepositoryID)
+		}
+		if repositoryID != "" {
 			repoDef, found := h.repo.Repository(repositoryID)
-			if !found || repoDef.ProjectID != req.ProjectID {
+			if !found || repoDef.ProjectID != req.ProjectID || req.Execution != nil && strings.TrimSpace(repoDef.CloneURL) == "" {
 				c.JSON(http.StatusConflict, map[string]string{"error": "项目默认代码仓库无效，请重新绑定", "code": "repository_required"})
 				return
 			}
 			repositories = []domain.RepositoryContext{repositoryRunContext(repoDef)}
 		}
-		v, err := h.engine.StartWithRepositoriesContext(req.WorkflowID, req.Input, repositories, domain.TelemetryContext{ProjectID: req.ProjectID, ResponsibleUserID: responsibleUserID})
+		v, err := h.engine.StartSelectedSOP(wf, req.Input, repositories, execution)
 		if err != nil {
 			respond(c, err)
 			return
@@ -146,7 +192,7 @@ func (h *runsHandlers) runs(c *gin.Context) {
 func (h *runsHandlers) run(c *gin.Context) {
 	id := c.Param("id")
 	switch c.FullPath() {
-	case "/api/runs/:id/approve", "/api/runs/:id/reject", "/api/runs/:id/retry", "/api/runs/:id/decline-retry", "/api/runs/:id/pause", "/api/runs/:id/resume", "/api/runs/:id/refresh-sop", "/api/runs/:id/pass":
+	case "/api/runs/:id/approve", "/api/runs/:id/reject", "/api/runs/:id/retry", "/api/runs/:id/decline-retry", "/api/runs/:id/pause", "/api/runs/:id/guide-node", "/api/runs/:id/resume", "/api/runs/:id/refresh-sop", "/api/runs/:id/pass":
 		if h.rejectNonSOPControl(c, id) {
 			return
 		}
@@ -285,6 +331,20 @@ func (h *runsHandlers) run(c *gin.Context) {
 		respond(c, h.engine.Cancel(id))
 	case "/api/runs/:id/pause":
 		respond(c, h.engine.Pause(id))
+	case "/api/runs/:id/guide-node":
+		var req engine.NodeGuidanceRequest
+		if !decode(c, &req) || rejectBlockedIssueRun(h.deps, c, id) {
+			return
+		}
+		if err := req.Validate(); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := h.engine.GuideNode(c.Request.Context(), id, req); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{"status": "accepted"})
 	case "/api/runs/:id/resume":
 		var req domain.HumanDecision
 		if decode(c, &req) {
@@ -350,6 +410,8 @@ func publicRun(run domain.Run, summary bool) domain.Run {
 	for i := range run.Repositories {
 		run.Repositories[i] = domain.PublicRepositoryContext(run.Repositories[i])
 	}
+	run.ExecutionContext.LocalSourcePath = ""
+	run.ExecutionContext.LocalSourcePaths = nil
 	run.Input = gitwork.Redact(run.Input)
 	newNodes := make(map[string]*domain.NodeRun, len(run.Nodes))
 	for k, n := range run.Nodes {
@@ -358,6 +420,7 @@ func publicRun(run domain.Run, summary bool) domain.Run {
 			continue
 		}
 		cp := *n
+		cp.Guidance = ""
 		if summary {
 			cp.Output = ""
 			cp.Error = clipRunText(cp.Error, 160)
@@ -412,6 +475,19 @@ func parsePageLimit(r *http.Request) int {
 }
 
 func slimWorkflowSnapshot(wf domain.WorkflowDefinition) domain.WorkflowDefinition {
+	if len(wf.VerifierSnapshots) > 0 {
+		metadata := make(map[string]domain.VerifierDefinition, len(wf.VerifierSnapshots))
+		for id, v := range wf.VerifierSnapshots {
+			v.Script = ""
+			if v.Review != nil {
+				review := *v.Review
+				review.Instructions = ""
+				v.Review = &review
+			}
+			metadata[id] = v
+		}
+		wf.VerifierSnapshots = metadata
+	}
 	nodes := make([]domain.WorkflowNode, len(wf.Nodes))
 	for i, n := range wf.Nodes {
 		n.Script = ""

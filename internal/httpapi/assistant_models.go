@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,8 +36,9 @@ type assistantModel struct {
 }
 
 type assistantModelCatalog struct {
-	Default string           `json:"default"`
-	Models  []assistantModel `json:"models"`
+	PersonalExecutors bool             `json:"personalExecutors,omitempty"`
+	Default           string           `json:"default"`
+	Models            []assistantModel `json:"models"`
 	// SponsoredModels is set when users without their own CodeBuddy API Key
 	// may still chat on the platform's shared key, limited to these models;
 	// SponsoredModel is the first (the default).
@@ -181,7 +183,21 @@ func cachedCLIModels(environment string) []string {
 // environment. Guests get the configured models only; actually chatting still
 // requires login plus a configured or sponsored CodeBuddy key.
 func (h *assistantHandlers) models(c *gin.Context) {
-	if raw := strings.TrimSpace(c.Query("executor")); raw != "" && assistantExecutor(raw) != "codebuddy" {
+	raw := strings.TrimSpace(c.Query("executor"))
+	if runtime.PersonalExecutorsOnly() {
+		if raw == "" {
+			c.JSON(200, h.personalAssistantCatalog(c))
+			return
+		}
+		if !runtime.IsPersonalExecutor(raw) {
+			c.JSON(400, gin.H{"error": "请选择 Codex、Cursor 或 Claude Code"})
+			return
+		}
+		if raw == "claude-code" {
+			raw = "claude"
+		}
+	}
+	if raw != "" && assistantExecutor(raw) != "codebuddy" {
 		id := assistantExecutor(raw)
 		catalog, ok := executorModelCatalogs()[id]
 		if !ok {
@@ -224,6 +240,42 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		catalog.Engines = assistantEngineOptions(user, shared && strings.TrimSpace(user.CodeBuddyAPIKey) == "")
 	}
 	c.JSON(200, catalog)
+}
+
+func (h *assistantHandlers) personalAssistantCatalog(c *gin.Context) assistantModelCatalog {
+	var user domain.User
+	if current, ok := h.requestUser(c.Request, true); ok {
+		user, _ = h.repo.User(current.ID)
+	}
+	catalog := assistantModelCatalog{PersonalExecutors: true, Default: "codex:default"}
+	engines := []string{"codex", "cursor", "claude-code"}
+	for _, option := range assistantEngineOptions(user, false) {
+		if runtime.IsPersonalExecutor(option.ID) {
+			catalog.Engines = append(catalog.Engines, option)
+		}
+	}
+	listed := assistantEngineModels(c.Request.Context(), user, engines...)
+	for _, engine := range engines {
+		catalog.Models = append(catalog.Models, assistantModel{
+			ID: engine + ":default", Name: "CLI 默认模型", Family: assistantModelFamily(engine), Engine: engine,
+		})
+		found := false
+		for _, model := range listed {
+			if model.Engine == engine {
+				catalog.Models = append(catalog.Models, model)
+				found = true
+			}
+		}
+		if !found {
+			for _, model := range assistantEngineBuiltinModels(engine) {
+				catalog.Models = append(catalog.Models, assistantModel{
+					ID: engine + ":" + model.ID, Name: model.Name, Family: assistantModelFamily(model.ID), Engine: engine,
+				})
+			}
+		}
+	}
+	h.saveCursorCatalog(user)
+	return catalog
 }
 
 // assistantChatCatalog is the catalog used by chat conversations: the same

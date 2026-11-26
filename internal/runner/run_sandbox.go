@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -183,22 +184,29 @@ func taskSandboxSpec(task domain.RunnerTask) (runtime.SandboxRequirements, runti
 	if task.Sandbox.Environment != nil {
 		resources.Environment = *task.Sandbox.Environment
 	}
+	requirements := runtime.ProviderRequirements(task.Provider)
 	if frozen := task.Sandbox.Requirements; frozen != nil {
-		requirements := runtime.SandboxRequirements{PrivateHome: frozen.PrivateHome, BunFS: frozen.BunFS}
+		requirements = runtime.SandboxRequirements{PrivateHome: frozen.PrivateHome, BunFS: frozen.BunFS}
 		for _, state := range frozen.CLIStates {
 			requirements.CLIStates = append(requirements.CLIStates, runtime.CLIStateRequirement{Directory: state.Directory, Files: append([]string(nil), state.Files...)})
 		}
-		return requirements, resources
 	}
-	requirements := runtime.ProviderRequirements(task.Provider)
+	// The frozen spec comes from the workflow. The task adds its own
+	// provider's writable CLI state only when it uses the machine login.
 	if task.Invocation != nil && task.Invocation.CredentialSource != domain.RuntimeAuthPersonal {
+		var state runtime.CLIStateRequirement
 		switch task.Provider {
 		case "codex":
-			requirements.CLIStates = []runtime.CLIStateRequirement{{Directory: ".codex"}}
+			state.Directory = ".codex"
 		case "claude-code":
-			requirements.CLIStates = []runtime.CLIStateRequirement{{Directory: ".claude", Files: []string{".claude.json"}}}
+			state = runtime.CLIStateRequirement{Directory: ".claude", Files: []string{".claude.json"}}
 		case "codebuddy":
-			requirements.CLIStates = []runtime.CLIStateRequirement{{Directory: ".codebuddy", Files: []string{".codebuddy.json"}}}
+			state = runtime.CLIStateRequirement{Directory: ".codebuddy", Files: []string{".codebuddy.json"}}
+		}
+		if state.Directory != "" && !slices.ContainsFunc(requirements.CLIStates, func(existing runtime.CLIStateRequirement) bool {
+			return existing.Directory == state.Directory
+		}) {
+			requirements.CLIStates = append(requirements.CLIStates, state)
 		}
 	}
 	return requirements, resources

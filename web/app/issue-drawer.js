@@ -168,6 +168,7 @@ function renderIssueDetailTab(){
   $('#issueDetailTitle').textContent=issue.title||'';
   $('#issueDetailSubtitle').textContent=`${project?.name||'—'} · ${issuePriorityLabel(issue.priority)} · ${issueStatusText(issue)} · 更新于 ${new Date(issue.updatedAt).toLocaleString()}`;
   // 答案只存在输入框里。问题没变时跳过重绘，避免轮询和运行推送把正在填的内容清掉。
+  if(state.data?.capabilities?.personalExecutors&&state.issueDetailTab==='clarify')state.issueDetailTab='overview';
   const clarifyKey=state.issueDetailTab==='clarify'?issueClarifyViewKey(issue,project):'';
   if(clarifyKey&&clarifyKey===renderedIssueClarifyKey&&host.querySelector?.('.clarify-workspace'))return;
   const clarifyDraft=clarifyKey?captureIssueClarifyDraft(host):null;
@@ -230,6 +231,7 @@ function renderIssueDetailTab(){
 }
 function drawerFact(label,value,title){return `<div class="detail-fact"><span>${label}</span><b title="${escapeHTML(title||value||'')}">${value===''||value==null?'—':value}</b></div>`}
 function clarificationOverviewCard(issue){
+  if(state.data?.capabilities?.personalExecutors)return '';
   const c=issue.clarification||{},source=issue.source==='gongfeng'?'工蜂':issue.source==='tapd'?'TAPD':'LoopForge';
   if(issueClarifying(issue.id)||c.status==='analyzing'){
     return `<div class="clarify-overview"><span>…</span><div><b>澄清正在后台分析</b><small>关闭网页也不会中断，点查看可回到分析过程</small></div><button class="button ghost small" data-start-clarify>查看</button></div>`;

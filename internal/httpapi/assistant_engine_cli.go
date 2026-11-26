@@ -120,15 +120,27 @@ func (e assistantCLIMissingError) Is(target error) bool {
 
 // assistantCredentialError is the authorization failure of a CLI other than CodeBuddy;
 // it matches errAssistantCredentialRejected so callers stop retrying.
-type assistantCredentialError struct{ engine string }
+type assistantCredentialError struct {
+	engine     string
+	localLogin bool
+}
 
 func (e assistantCredentialError) Error() string {
 	label := assistantEngineLabel(e.engine)
+	if e.localLogin {
+		return fmt.Sprintf("%s 本机登录无效或已过期。%s 后重试", label, runtime.RunnerLocalLoginHint(e.engine))
+	}
 	return fmt.Sprintf("%s 拒绝了你的 API Key（401/403），请在「设置」里检查 %s API Key 和 Base URL", label, label)
 }
 
 func (e assistantCredentialError) Is(target error) bool {
 	return target == errAssistantCredentialRejected
+}
+
+var assistantLocalAuthFailureRe = regexp.MustCompile(`(?i)not (logged in|authenticated)|login required|sign in to continue|please (log|sign) in`)
+
+func assistantLocalAuthFailureText(text string) bool {
+	return assistantAuthFailureText(text) || assistantLocalAuthFailureRe.MatchString(text)
 }
 
 var assistantAuthFailureRe = regexp.MustCompile(`(?i)\b(401|403)\b|unauthorized|invalid api key|invalid x-api-key|authentication_error|incorrect api key`)
@@ -194,8 +206,10 @@ func prepareAssistantClaudeInvocation(o assistantEngineInvocationOpts) (assistan
 	argv := []string{o.Bin, "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
 		"--max-turns", nativeAssistantUnlimitedTurns, "--system-prompt", o.SystemPrompt,
 		"--mcp-config", mcpPath, "--strict-mcp-config", "--settings", settingsPath, "--setting-sources", "user",
-		"--permission-mode", "bypassPermissions",
-		"--model", o.Model}
+		"--permission-mode", "bypassPermissions"}
+	if o.Model != "" {
+		argv = append(argv, "--model", o.Model)
+	}
 	if !o.Workspace {
 		argv = append(argv, "--disallowedTools", claudeAssistantDisallowedTools)
 	}

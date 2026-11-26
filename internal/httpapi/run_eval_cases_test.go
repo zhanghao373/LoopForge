@@ -3,10 +3,14 @@ package httpapi
 import (
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -457,5 +461,143 @@ func TestRunEvalRecoveryAndApplyConflicts(t *testing.T) {
 	}
 	if (&runsHandlers{}).evalHub() == nil {
 		t.Fatal("lazy eval hub missing")
+	}
+}
+
+func TestLocalRunEvalThroughCodexRunner(t *testing.T) {
+	t.Setenv("AGENTFLOW_DEPLOYMENT_MODE", "local")
+	f := cvBNewHTTPFixture(t)
+	hub := quietRunnerHub()
+	deps := &deps{repo: f.s, engine: f.e}
+	h := &runsHandlers{deps: deps, evalJobs: newRunEvalHub(), assistant: &assistantHandlers{deps: deps, runnerControls: hub}}
+	wf := domain.WorkflowDefinition{
+		ID: "local-eval-workflow", Name: "Local evaluate", SandboxProfileID: "local",
+		Nodes: []domain.WorkflowNode{{ID: "review", MaxAttempts: 2}},
+	}
+	if err := f.s.PutWorkflow(wf); err != nil {
+		t.Fatal(err)
+	}
+	run := domain.Run{
+		ID: "local-eval-run", WorkflowID: wf.ID, WorkflowSnapshot: wf, Status: "succeeded",
+		Nodes: map[string]*domain.NodeRun{"review": {Status: "succeeded", Attempt: 2}},
+	}
+	if err := f.s.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	post := func(body any) *httptest.ResponseRecorder {
+		return cvBDirectHandlerRequest(t, f, http.MethodPost, "/api/runs/"+run.ID+"/eval", body,
+			h.startRunEval, map[string]string{"id": run.ID}, true)
+	}
+	if rec := post(nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "设为默认") {
+		t.Fatalf("without a default runner = %d %s", rec.Code, rec.Body.String())
+	}
+	runner := domain.Runner{
+		ID: "eval-runner", Name: "Local Codex", OwnerUserID: f.user.ID,
+		RunnerVersion: domain.RunnerVersionLocalConversationAuth, Status: domain.RunnerStatusOnline,
+		Runtimes: []domain.RunnerRuntime{{Provider: "codex", Status: domain.RuntimeStatusOnline}},
+	}
+	if err := f.s.PutRunner(runner); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.SetDefaultRunner(f.user.ID, runner.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	conn := testRunnerConn(runner.ID)
+	registerTestConn(hub, conn)
+	t.Cleanup(func() { hub.unregister(conn) })
+
+	const feedback = "请核对评审为何重试"
+	rec := post(map[string]any{"feedback": "  " + feedback + "  "})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start evaluation = %d %s", rec.Code, rec.Body.String())
+	}
+	if duplicate := post(nil); duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate evaluation = %d %s", duplicate.Code, duplicate.Body.String())
+	}
+	var accepted domain.RunEvalRecord
+	if err := json.Unmarshal(rec.Body.Bytes(), &accepted); err != nil || accepted.Model != "codex:default" || accepted.RunnerID != runner.ID || accepted.Feedback != feedback {
+		t.Fatalf("accepted evaluation = %+v, %v", accepted, err)
+	}
+	h.evalJobs.mu.Lock()
+	job := h.evalJobs.jobs[run.ID]
+	h.evalJobs.mu.Unlock()
+	if job == nil {
+		t.Fatal("evaluation job was not registered")
+	}
+	t.Cleanup(job.cancel)
+
+	const answer = `{"summary":"评审重试一次","dimensions":{"control":80,"latency":80,"tools":80,"tokens":80,"recovery":80,"delivery":80},"findings":[{"dimension":"control","nodeId":"review","evidence":"attempt 2"}],"recommendations":[{"id":"tune","target":"workflow","action":"update_node","nodeId":"review","set":{"maxAttempts":1}}]}`
+	var events []domain.TelemetryEvent
+	var sequence int64
+	var sawCodex, sawFeedback, finished bool
+	addEvent := func(line string) {
+		sequence++
+		events = append(events, domain.TelemetryEvent{Name: "process.stdout", Message: line})
+	}
+	deadline := time.After(5 * time.Second)
+waitForEval:
+	for {
+		select {
+		case message := <-conn.send:
+			var request runtime.ConversationProcessRequest
+			if message.WorkspaceRequest == nil || json.Unmarshal(message.WorkspaceRequest.Conversation, &request) != nil {
+				t.Fatalf("unexpected runner message: %+v", message)
+			}
+			result := runtime.ConversationProcessResult{ID: request.ID}
+			switch request.Operation {
+			case "start":
+				sawCodex = request.Command != nil && request.Command.Provider == "codex" && request.Command.LocalLogin
+			case "write":
+				var rpc struct {
+					ID     int             `json:"id"`
+					Method string          `json:"method"`
+					Params json.RawMessage `json:"params"`
+				}
+				_ = json.Unmarshal([]byte(request.Data), &rpc)
+				switch rpc.Method {
+				case "initialize":
+					addEvent(fmt.Sprintf(`{"id":%d,"result":{}}`, rpc.ID))
+				case "thread/start":
+					addEvent(fmt.Sprintf(`{"id":%d,"result":{"thread":{"id":"thread-eval"}}}`, rpc.ID))
+				case "turn/start":
+					sawFeedback = strings.Contains(string(rpc.Params), feedback) && strings.Contains(string(rpc.Params), run.ID)
+					addEvent(fmt.Sprintf(`{"method":"item/completed","params":{"item":{"type":"agentMessage","text":%q}}}`, answer))
+					addEvent(`{"method":"turn/completed","params":{"turn":{"status":"completed"}}}`)
+					finished = true
+				}
+			case "poll":
+				result.Events, result.Sequence, result.Done = events, sequence, finished
+				events = nil
+			case "stop":
+				result.Done = true
+			}
+			payload, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hub.resolveWorkspace(message.RequestID, domain.RunnerWorkspaceResponse{Status: http.StatusOK, Payload: payload})
+		case <-job.done:
+			break waitForEval
+		case <-deadline:
+			t.Fatal("runner evaluation did not finish")
+		}
+	}
+	saved, ok := f.s.RunEval(accepted.ID)
+	if !sawCodex || !sawFeedback || !ok || saved.Status != domain.RunEvalSucceeded || saved.Feedback != feedback ||
+		len(saved.Result.Findings) != 1 || saved.Result.Findings[0].Evidence != "attempt 2" {
+		t.Fatalf("runner used Codex = %v, saw feedback = %v, saved = %+v", sawCodex, sawFeedback, saved)
+	}
+	before, _ := f.s.Workflow(wf.ID)
+	if before.Nodes[0].MaxAttempts != 2 {
+		t.Fatal("recommendation changed the SOP before confirmation")
+	}
+	apply := cvBDirectHandlerRequest(t, f, http.MethodPost, "/api/runs/"+run.ID+"/eval/apply",
+		map[string]any{"evalId": accepted.ID, "recommendationIds": []string{"tune"}},
+		h.applyRunEval, map[string]string{"id": run.ID}, true)
+	after, _ := f.s.Workflow(wf.ID)
+	snapshot, _ := f.s.RunState(run.ID)
+	saved, _ = f.s.RunEval(accepted.ID)
+	if apply.Code != http.StatusOK || after.Nodes[0].MaxAttempts != 1 || snapshot.WorkflowSnapshot.Nodes[0].MaxAttempts != 2 || saved.Result.Recommendations[0].Status != domain.RunEvalRecApplied {
+		t.Fatalf("apply evaluation = %d %s", apply.Code, apply.Body.String())
 	}
 }

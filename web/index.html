@@ -31,10 +31,12 @@
   <link rel="stylesheet" href="/app/harness-motion.css">
   <link rel="stylesheet" href="/app/sliding-tabs.css">
   <link rel="stylesheet" href="/app/mcp.css">
-  <link rel="stylesheet" href="/app/flow-canvas.css?v=20261109cli">
+  <link rel="stylesheet" href="/app/flow-canvas.css?v=20261126personal">
   <link rel="stylesheet" href="/app/page-feedback.css">
   <link rel="stylesheet" href="/app/assistant-settings.css">
   <link rel="stylesheet" href="/preferences.css">
+  <link rel="stylesheet" href="/app/sop-launch.css?v=20261126sources">
+  <link rel="stylesheet" href="/app/linear-import.css?v=20261126mcp">
   <link rel="stylesheet" href="/app/issues-list.css">
   <link rel="stylesheet" href="/app/requirement-wizard.css?v=20261116nosop">
   <link rel="stylesheet" href="/app/assets-harness.css">
@@ -42,7 +44,7 @@
   <link rel="stylesheet" href="/app/sop-catalog.css">
   <link rel="stylesheet" href="/app/observability-harness.css?v=20261030obs1">
   <link rel="stylesheet" href="/app/topbar-harness.css?v=20261030tb1">
-  <link rel="stylesheet" href="/app/approvals-harness.css?v=20261030ap1">
+  <link rel="stylesheet" href="/app/approvals-harness.css?v=20261126review">
   <style>
     .boot-loader{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:#0a0e16;background:var(--bg,#0a0e16);color:#94a3bd;color:var(--muted,#94a3bd);transition:opacity .18s ease}
     [data-theme=light] .boot-loader{background:#f5f7fb;background:var(--bg,#f5f7fb);color:#475569;color:var(--muted,#475569)}
@@ -140,7 +142,7 @@
       <button class="nav" data-view="aiSchedules"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="clock" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="nav-label">定时任务</span></button>
       <p>Agent 能力</p>
       <button class="nav" data-view="agents"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="user" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="head" cx="12" cy="8" r="4"/><path class="body" d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="nav-label">角色定义</span></button>
-      <button class="nav" data-view="mcp" data-nav-match="rules skills" data-nav-icon="skills"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="skills" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="skill-piece" d="M9 4V3a2 2 0 0 1 4 0v1h5a2 2 0 0 1 2 2v4h-1a2 2 0 0 0 0 4h1v4a2 2 0 0 1-2 2h-4v-1a2 2 0 0 0-4 0v1H6a2 2 0 0 1-2-2v-4H3a2 2 0 0 1 0-4h1V6a2 2 0 0 1 2-2h3Z"/></svg></span><span class="nav-label">能力资产</span></button>
+      <button class="nav" data-view="mcp" data-nav-match="rules skills verifiers" data-nav-icon="skills"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="skills" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="skill-piece" d="M9 4V3a2 2 0 0 1 4 0v1h5a2 2 0 0 1 2 2v4h-1a2 2 0 0 0 0 4h1v4a2 2 0 0 1-2 2h-4v-1a2 2 0 0 0-4 0v1H6a2 2 0 0 1-2-2v-4H3a2 2 0 0 1 0-4h1V6a2 2 0 0 1 2-2h3Z"/></svg></span><span class="nav-label">能力资产</span></button>
       <p>运行环境</p>
       <button class="nav" data-view="runners"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="server" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01"/><path d="M7 17.5h.01"/></svg></span><span class="nav-label">执行机器</span></button>
       <button class="nav" data-view="dockerfiles" data-nav-match="environments sandboxes" data-nav-icon="layers"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="layers" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></span><span class="nav-label">环境资产</span></button>
@@ -278,6 +280,7 @@
               <button id="openSyncModal" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="swap" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">外部同步</span><span class="hui-menu-meta"><span id="syncBadge" class="sync-badge live">未配置</span></span></button>
               <span class="hui-menu-sep" role="separator"></span>
               <button id="importGitHubIssues" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">同步 GitHub</span></button>
+              <button id="importLinearIssues" class="hui-menu-item" type="button" role="menuitem" tabindex="-1"><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">导入 Linear</span></button>
               <button id="importTAPDIssue" class="hui-menu-item" type="button" role="menuitem" tabindex="-1" data-legacy-tracker hidden><svg class="agent-icon harness-icon" data-icon="download" width="16" height="16" aria-hidden="true" focusable="false"></svg><span class="hui-menu-label">导入 TAPD</span></button>
             </div>
           </div>
@@ -295,7 +298,7 @@
         <select id="issueStatusFilter" class="select"><option value="">全部状态</option><option value="backlog">待规划</option><option value="todo">待处理 / 待执行</option><option value="in_progress">进行中</option><option value="in_review">评审中</option><option value="done">已完成</option><option value="closed">已关闭</option><option value="blocked">已阻塞</option><option value="cancelled">已取消</option></select>
         <select id="issueAssigneeFilter" class="select"><option value="">全部责任人</option><option value="unassigned">未指定责任人</option></select>
         <select id="issueRunFilter" class="select"><option value="">全部执行情况</option><option value="not_started">尚未执行</option><option value="active">正在推进</option><option value="attention">需要介入</option><option value="mr">待处理 PR</option><option value="closed">已闭环</option></select>
-        <select id="sourceFilter" class="select"><option value="">全部来源</option><option value="github">GitHub</option><option value="local">平台新建</option></select>
+        <select id="sourceFilter" class="select"><option value="">全部来源</option><option value="github">GitHub</option><option value="linear">Linear</option><option value="local">平台新建</option></select>
         <button id="startIssueSelection" class="button ghost small" type="button"><svg class="agent-icon harness-icon" data-icon="check" width="14" height="14" aria-hidden="true" focusable="false"></svg>批量操作</button>
         <div class="issue-view-toggle" role="group" aria-label="视图切换">
           <button type="button" data-issue-view="table" class="active"><svg class="agent-icon harness-icon" data-icon="menu" width="14" height="14" aria-hidden="true" focusable="false"></svg>列表</button>
@@ -332,6 +335,7 @@
           <div id="runFilters" class="run-filters" role="tablist" aria-label="按状态筛选"><button type="button" class="active" data-run-filter="all">全部<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="active">进行中<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="queued">排队中<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="paused">已暂停<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="waiting">待确认<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="succeeded">已完成<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="failed">失败<span class="sliding-tab-count">0</span></button><button type="button" data-run-filter="cancelled">已取消<span class="sliding-tab-count">0</span></button></div>
           <div class="run-tools">
             <label class="run-search"><span data-run-icon="search" aria-hidden="true"><svg width="14" height="14"></svg></span><input id="runSearch" type="search" placeholder="搜索需求标题或 SOP" aria-label="搜索需求标题或 SOP"></label>
+            <span id="runEnvironmentField" class="run-select" hidden><select id="runEnvironmentFilter" aria-label="按执行环境筛选"><option value="">全部环境</option><option value="runner">本机</option><option value="cloud">云端</option></select></span>
             <span class="run-select"><select id="runWorkflowFilter" aria-label="按 SOP 筛选"><option value="">全部 SOP</option></select><span data-run-icon="chevron-down" aria-hidden="true"><svg width="14" height="14"></svg></span></span>
           </div>
         </div>
@@ -363,7 +367,7 @@
     <section id="sopsView" class="view page-view">
       <div class="page-heading">
         <div><h1>流程模板</h1></div>
-        <div class="heading-actions"><button id="refreshSOPs" class="button ghost" type="button">刷新</button><button id="newSOP" class="button primary" type="button">新建 SOP</button></div>
+        <div class="heading-actions"><button id="launchSOP" class="button ghost" type="button" hidden>发起 SOP</button><button id="configurePersonalSOPs" class="button ghost" type="button" hidden>配置日常 SOP</button><button id="refreshSOPs" class="button ghost" type="button">刷新</button><button id="newSOP" class="button primary" type="button">新建 SOP</button></div>
       </div>
       <div class="sop-page">
         <div class="sop-toolbar">
@@ -393,6 +397,7 @@
             <div class="fd-meta"><span id="workflowMeta" class="fd-meta-main"></span><button type="button" id="sandboxChip" class="fd-sbx" hidden data-tip="运行沙箱 · 点击修改"><span data-fd-ic="box" data-s="12"></span><span class="lbl" id="sandboxChipLabel">沙箱</span></button></div>
           </div>
         </div>
+        <nav id="personalSOPs" class="fd-personal-sops" aria-label="日常 SOP" hidden></nav>
         <div class="fd-head-sp"></div>
         <div class="fd-tools">
           <button id="discardWorkflow" class="fd-btn ghost" type="button" hidden data-tip="放弃修改，恢复到上次保存"><span data-fd-ic="rotate" data-s="15"></span><span class="lbl">取消修改</span></button>
@@ -402,6 +407,7 @@
         <span class="fd-vsep"></span>
         <button id="saveWorkflow" class="fd-btn save" type="button" disabled data-tip="所有修改已保存"><span class="ud"></span><span class="ok-ic" data-fd-ic="check" data-s="14"></span><span class="lbl" id="saveStateLabel">已保存</span><kbd>⌘S</kbd></button>
         <button id="publishWorkflow" class="fd-btn primary pub" type="button" data-tip="发布为新版本"><span data-fd-ic="upload" data-s="14"></span><span class="lbl">发布版本</span></button>
+        <button id="runPersonalSOP" class="fd-btn primary" type="button" hidden>运行</button>
         <div class="fd-pop" id="flowSwitchPop" hidden>
           <label class="fd-search"><span data-fd-ic="search" data-s="14"></span><input id="flowSwitchQ" type="search" placeholder="搜索 SOP" autocomplete="off"></label>
           <div class="fd-pop-list" id="flowSwitchList" role="listbox"></div>
@@ -686,7 +692,7 @@
         <div><p class="eyebrow">Agent 能力</p><h1>能力资产</h1><p>MCP、规则和技能统一在这里维护，角色按需绑定后即可使用。</p></div>
         <div class="heading-actions"><a class="button ghost" href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noopener noreferrer">浏览公共 MCP ↗</a><button id="newCustomMcp" class="button primary" type="button">＋ 添加 MCP</button></div>
       </div>
-      <div class="asset-type-tabs" role="tablist" aria-label="能力资产类型" data-asset-type-group="capability"><button type="button" role="tab" data-asset-type-tab="mcp" class="active" aria-selected="true">MCP</button><button type="button" role="tab" data-asset-type-tab="rules" aria-selected="false" tabindex="-1">规则</button><button type="button" role="tab" data-asset-type-tab="skills" aria-selected="false" tabindex="-1">技能</button></div>
+      <div class="asset-type-tabs" role="tablist" aria-label="能力资产类型" data-asset-type-group="capability"><button type="button" role="tab" data-asset-type-tab="mcp" class="active" aria-selected="true">MCP</button><button type="button" role="tab" data-asset-type-tab="rules" aria-selected="false" tabindex="-1">规则</button><button type="button" role="tab" data-asset-type-tab="skills" aria-selected="false" tabindex="-1">技能</button><button type="button" role="tab" data-asset-type-tab="verifiers" aria-selected="false" tabindex="-1">Verifier</button></div>
       <div class="mcp-toolbar">
         <select id="mcpScopeSelect" class="select" aria-label="范围"><option value="project" data-meta="当前项目">本项目</option><option value="personal" data-meta="仅自己可见">个人</option></select>
         <span class="mcp-installed-total">已添加<span id="mcpInstalledCount" class="mcp-tab-count">0</span></span>
@@ -705,7 +711,7 @@
           <div><p id="assetPageEyebrow" class="eyebrow">运行环境</p><h1 id="assetPageTitle">环境资产</h1><p id="assetPageDescription">维护当前项目的容器构建定义。</p></div>
           <div class="heading-actions"><button id="newAsset" type="button" class="button primary"><svg class="agent-icon harness-icon" data-icon="plus" width="14" height="14" aria-hidden="true" focusable="false"></svg><span id="newAssetLabel">新建配置</span></button></div>
         </div>
-        <div class="asset-type-tabs" role="tablist" aria-label="能力资产类型" data-asset-type-group="capability" hidden><button type="button" role="tab" data-asset-type-tab="mcp" aria-selected="false" tabindex="-1">MCP</button><button type="button" role="tab" data-asset-type-tab="rules" aria-selected="false" tabindex="-1">规则</button><button type="button" role="tab" data-asset-type-tab="skills" aria-selected="false" tabindex="-1">技能</button></div>
+        <div class="asset-type-tabs" role="tablist" aria-label="能力资产类型" data-asset-type-group="capability" hidden><button type="button" role="tab" data-asset-type-tab="mcp" aria-selected="false" tabindex="-1">MCP</button><button type="button" role="tab" data-asset-type-tab="rules" aria-selected="false" tabindex="-1">规则</button><button type="button" role="tab" data-asset-type-tab="skills" aria-selected="false" tabindex="-1">技能</button><button type="button" role="tab" data-asset-type-tab="verifiers" aria-selected="false" tabindex="-1">Verifier</button></div>
         <div class="asset-type-tabs" role="tablist" aria-label="环境资产类型" data-asset-type-group="environment"><button type="button" role="tab" data-asset-type-tab="dockerfiles" class="active" aria-selected="true">Dockerfile</button><button type="button" role="tab" data-asset-type-tab="environments" aria-selected="false" tabindex="-1">安装脚本</button><button type="button" role="tab" data-asset-type-tab="sandboxes" aria-selected="false" tabindex="-1">沙箱</button></div>
         <div id="assetScopeToolbar" class="asset-toolbar">
           <div id="assetScopeSwitch" class="mcp-scope-switch asset-scope-tabs" aria-label="资产范围"><button type="button" data-asset-scope="project" class="active">本项目<span class="sliding-tab-count" data-asset-scope-count="project">0</span></button><button type="button" data-asset-scope="shared">共享<span class="sliding-tab-count" data-asset-scope-count="shared">0</span></button><button type="button" data-asset-scope="skillhub" hidden>SkillHub 市场</button></div>
@@ -959,7 +965,34 @@
 
   <div id="importTAPDModal" class="modal"><form id="importTAPDForm" class="modal-card"><button type="button" class="modal-close import-tapd-close">×</button><p class="eyebrow">外部需求</p><h2>导入 TAPD 工作项</h2><p class="modal-hint">支持 TAPD 需求、缺陷或任务链接，也可以粘贴「标题 + 链接」。导入时将读取 TAPD 最新标题和描述并写入当前项目。</p><label for="importTAPDURL">TAPD 链接或分享文本</label><textarea id="importTAPDURL" class="input" required rows="3" placeholder="【工作项标题】&#10;https://tapd.example.com/tapd_fe/…/story/detail/…"></textarea><label>SOP 流程</label><select id="importTAPDWorkflow" class="select"></select><label>代码仓库（可多选）</label><div id="importTAPDRepository" class="repo-picker"></div><p class="modal-hint">从下拉框添加仓库，点击标签可移除。导入前必须至少选择一个仓库。</p><label for="importTAPDBaseBranch">继续开发分支（可选）</label><input id="importTAPDBaseBranch" class="input" placeholder="留空从配置主分支新建工作分支" aria-describedby="importTAPDBaseBranchHint" autocomplete="off"><div id="importTAPDRepositoryBranches" class="repository-branches" hidden></div><p id="importTAPDBaseBranchHint" class="modal-hint">留空从配置主分支新建工作分支；填写时直接继续该已有分支，不新建。</p><div class="modal-actions"><button type="button" class="button ghost import-tapd-close">取消</button><button id="confirmImportTAPD" type="submit" class="button primary">导入</button></div></form></div>
 
-  <div id="runModal" class="modal"><div class="modal-card"><button class="modal-close">×</button><p class="eyebrow">手动运行</p><h2>发起流程运行</h2><p>选择 SOP 并提供任务输入，内容会注入使用 <code>{{input}}</code> 的 Agent 节点。</p><label class="modal-label" for="runWorkflowChoice">SOP 流程</label><select id="runWorkflowChoice" class="select"></select><label class="modal-label" for="runInput">任务输入</label><textarea id="runInput" placeholder="例如：实现用户登录接口，并补充单元测试"></textarea><div class="modal-actions"><button class="button ghost modal-close">取消</button><button id="confirmRun" class="button primary">开始运行</button></div></div></div>
+  <div id="runModal" class="modal"><div class="modal-card"><button class="modal-close">×</button><p class="eyebrow">手动运行</p><h2>发起流程运行</h2><p>选择 SOP 并提供任务输入，内容会注入使用 <code>{{input}}</code> 的 Agent 节点。</p><label class="modal-label" for="runWorkflowChoice">SOP 流程</label><select id="runWorkflowChoice" class="select"></select><label class="modal-label" for="runInput">任务输入</label><textarea id="runInput" placeholder="例如：实现用户登录接口，并补充单元测试"></textarea>
+    <details id="sopLaunchNodes" class="sop-launch-nodes" hidden>
+      <summary id="sopLaunchNodeSummary">本次运行节点</summary>
+      <div id="sopLaunchNodePresets" class="sop-launch-node-presets"></div>
+      <div id="sopLaunchNodeList" class="sop-launch-node-list"></div>
+    </details>
+    <p id="sopLaunchSelectionStatus" class="modal-hint" role="status" hidden></p>
+    <section id="sopLaunchSettings" class="sop-launch-settings" hidden>
+      <label class="modal-label" for="sopLaunchEnvironment">执行环境</label>
+      <select id="sopLaunchEnvironment" class="select"><option value="runner">本机</option><option value="cloud">云端</option></select>
+      <p class="modal-hint" id="sopLaunchSummary" aria-live="polite"></p>
+      <details id="sopLaunchDetails"><summary>执行详情</summary><p id="sopLaunchCLIList"></p><div id="sopLaunchMachineField" hidden><label class="modal-label" for="sopLaunchMachine">本机 Runner</label><select id="sopLaunchMachine" class="select"></select></div><button id="sopLaunchEdit" class="button ghost small" type="button">配置 SOP 节点</button></details>
+      <label class="modal-label" for="sopLaunchSource">代码来源</label>
+      <select id="sopLaunchSource" class="select"></select>
+      <div id="sopLaunchDirectoryField" hidden>
+        <ul id="sopLaunchSelectedDirectories" aria-label="已添加的目录" hidden></ul>
+        <div class="sop-launch-directory-field">
+          <input id="sopLaunchPath" class="input" aria-label="本机源目录" placeholder="输入绝对路径，或浏览目录" autocomplete="off">
+          <button type="button" class="button ghost" id="sopLaunchAddDirectory">添加</button>
+          <button type="button" class="button ghost" id="sopLaunchBrowse">浏览目录</button>
+        </div>
+      </div>
+      <div id="sopLaunchDirectoryBrowser" class="sop-launch-directory-browser" hidden>
+        <div class="sop-launch-directory-toolbar"><button class="button ghost small" type="button" id="sopLaunchParent">上一级</button><span id="sopLaunchDirectoryLabel"></span><button class="button ghost small" type="button" id="sopLaunchUseDirectory" disabled>添加此目录</button></div>
+        <div id="sopLaunchDirectoryList"></div>
+      </div>
+      <p class="modal-hint" id="sopLaunchStatus" role="status"></p>
+    </section><div class="modal-actions"><button class="button ghost modal-close">取消</button><button id="confirmRun" class="button primary">开始运行</button></div></div></div>
 
   <div id="genericTemplateModal" class="modal"><div class="modal-card generic-template-card"><button class="modal-close generic-template-close">×</button><p class="eyebrow">内置 SOP</p><h2 id="genericTemplateTitle">使用通用模板</h2><p id="genericTemplateIntro" class="modal-hint"></p><div id="genericTemplateStructure" class="generic-structure"></div><div class="generic-requirement-head"><b>运行依赖</b><span>复制不检查依赖；未配置时对应节点会在运行中降级或失败。凭证按任务责任人注入。</span></div><div id="genericTemplateRequirements" class="generic-requirements"></div><div class="modal-actions"><button type="button" class="button ghost generic-template-close">取消</button><button id="runGenericTemplateDirect" type="button" class="button ghost">直接运行</button><button id="confirmGenericTemplate" type="button" class="button primary">复制到本项目</button></div></div></div>
 
@@ -1007,6 +1040,54 @@
 
   <div id="artifactModal" class="modal"><div class="modal-card artifact-preview-modal"><button type="button" class="modal-close artifact-close">×</button><div id="artifactPreview"></div></div></div>
 
+  <dialog id="linearImportDialog" class="modal-card linear-import-dialog" aria-labelledby="linearImportTitle">
+    <h2 id="linearImportTitle">导入 Linear 需求</h2>
+    <p id="linearImportDestination" class="linear-import-destination"></p>
+    <div class="linear-import-method" role="radiogroup" aria-label="导入方式">
+      <label><input type="radio" name="linearImportMethod" value="mcp" checked> 本地 MCP</label>
+      <label><input type="radio" name="linearImportMethod" value="key"> API Key</label>
+    </div>
+    <div id="linearImportMCPPane" class="linear-import-mcp">
+      <span id="linearMCPConnectionStatus">正在检查连接…</span>
+      <button id="linearMCPConnect" class="button primary small" type="button" disabled>授权连接</button>
+      <button id="linearMCPDisconnect" class="button ghost small" type="button" hidden>断开本地连接</button>
+      <small>使用 Linear 官方只读 MCP。在浏览器完成 OAuth 后，可直接在这里选择项目。</small>
+    </div>
+    <div id="linearImportKeyPane" class="linear-import-form" hidden>
+      <label for="linearImportKey">Linear 个人 API Key</label>
+      <div class="linear-import-connect">
+        <input id="linearImportKey" class="input" type="password" autocomplete="off" spellcheck="false" maxlength="512">
+        <button id="linearLoadProjects" class="button ghost" type="button">读取项目</button>
+      </div>
+      <small><a href="https://linear.app/settings/api" target="_blank" rel="noopener noreferrer">在 Linear 创建只读 API Key ↗</a>，密钥仅在当前页面会话内使用。</small>
+    </div>
+    <div class="linear-import-form linear-import-selection">
+      <label for="linearImportProject">Linear 项目</label>
+      <select id="linearImportProject" class="select" disabled><option value="">请先读取项目</option></select>
+      <fieldset id="linearImportFilters" class="linear-import-filters" disabled>
+        <label>状态
+          <select id="linearImportState" class="select">
+            <option value="">全部状态</option><option value="triage">待分流</option><option value="backlog">待规划</option><option value="unstarted">待开始</option><option value="started">进行中</option><option value="completed">已完成</option><option value="canceled">已取消</option>
+          </select>
+        </label>
+        <label>优先级
+          <select id="linearImportPriority" class="select">
+            <option value="">全部优先级</option><option value="1">紧急</option><option value="2">高</option><option value="3">中</option><option value="4">低</option><option value="0">未设置</option>
+          </select>
+        </label>
+        <label class="linear-import-query">关键词
+          <input id="linearImportQuery" class="input" type="search" maxlength="200" placeholder="搜索标题或描述">
+        </label>
+      </fieldset>
+    </div>
+    <p id="linearImportStatus" class="linear-import-status" role="status" aria-live="polite" hidden></p>
+    <ul id="linearImportPreview" class="linear-import-preview" aria-label="匹配需求预览" hidden></ul>
+    <div class="modal-actions linear-import-actions">
+      <button id="linearImportClose" class="button ghost" type="button">关闭</button>
+      <button id="linearPreviewIssues" class="button ghost" type="button" disabled>预览</button>
+      <button id="linearSubmitImport" class="button primary" type="button" disabled>导入符合条件的需求</button>
+    </div>
+  </dialog>
   <div id="syncModal" class="modal">
     <div class="modal-card sync-modal-card">
       <button type="button" class="modal-close sync-close">×</button>
@@ -1257,11 +1338,11 @@
     </div>
   </div>
   <div id="revisionModal" class="modal"><div class="modal-card revision-card"><button type="button" class="modal-close" id="revisionClose">×</button><div class="wizard-head"><div><p class="eyebrow">版本历史</p><h2 id="revisionTitle">版本历史</h2><p>对比上一版并回退。回退会生成新版本，不会改已经跑完的记录。</p></div></div><div id="revisionList" class="revision-list"></div><pre id="revisionDiff" class="revision-diff">选择一个历史版本查看差异。</pre><div class="wizard-actions"><button type="button" class="button ghost" id="revisionClose2">关闭</button><button type="button" class="button primary" id="revisionRestore" disabled>回退到此版本</button></div></div></div>
-  <script src="/app.js"></script>
-  <script src="/app/assistant-models.js"></script>
-  <script src="/app/access.js"></script>
+  <script src="/app.js?v=20261126linearmcp"></script>
+  <script src="/app/assistant-models.js?v=20261126mode"></script>
+  <script src="/app/access.js?v=20261126mode"></script>
   <script src="/app/dashboards.js"></script>
-  <script src="/app/sops.js"></script>
+  <script src="/app/sops.js?v=20261126launch"></script>
   <script src="/app/issue-model.js"></script>
   <script src="/app/projects.js"></script>
   <script src="/app/github-connect.js"></script>
@@ -1273,30 +1354,33 @@
   <script src="/app/hui-upload.js"></script>
   <script src="/app/hui-tooltip.js"></script>
   <script src="/app/git-ssh.js"></script>
-  <script src="/app/issues.js"></script>
+  <script src="/app/issues.js?v=20261126linear"></script>
+  <script src="/app/linear-import.js?v=20261126mcp"></script>
   <script src="/app/issue-bulk-delete.js"></script>
-  <script src="/app/sync-schedule.js"></script>
+  <script src="/app/sync-schedule.js?v=20261126mode"></script>
   <script src="/app/shared-schedules.js"></script>
   <script src="/app/notification-editor.js"></script>
   <script src="/app/bots.js"></script>
   <script src="/app/assistant-settings.js"></script>
   <script src="/app/flow-history.js?v=20261030fd2"></script>
   <script src="/app/flow-viewport.js?v=20261030fd2"></script>
-  <script src="/app/flow-palette.js?v=20261030fd2"></script>
-  <script src="/app/flows.js?v=20261030theme1"></script>
-  <script src="/app/agents.js"></script>
+  <script src="/app/flow-palette.js?v=20261126mode"></script>
+  <script src="/app/flows.js?v=20261126verifier"></script>
+  <script src="/app/agents.js?v=20261126mode"></script>
   <script src="/app/mcp.js"></script>
   <script src="/app/assets.js"></script>
+  <script src="/app/verifiers.js"></script>
   <script src="/app/skillhub.js"></script>
-  <script src="/app/runners.js"></script>
-  <script src="/app/runs.js"></script>
+  <script src="/app/runners.js?v=20261126launch"></script>
+  <script src="/app/runs.js?v=20261126review"></script>
   <script src="/app/run-activation.js"></script>
-  <script src="/app/workbench.js?v=20261030theme1"></script>
+  <script src="/app/sop-launch.js?v=20261126sources"></script>
+  <script src="/app/workbench.js?v=20261126mode"></script>
   <script src="/app/git-ssh-keys.js"></script>
-  <script src="/app/approvals.js"></script>
+  <script src="/app/approvals.js?v=20261126review"></script>
   <script src="/app/obs-charts.js"></script>
   <script src="/app/observability.js"></script>
-  <script src="/app/issue-drawer.js"></script>
+  <script src="/app/issue-drawer.js?v=20261126mode"></script>
   <script src="/app/revisions.js"></script>
   <script src="/app/harness-motion.js"></script>
   <script src="/app/hover-ink.js"></script>
@@ -1306,6 +1390,6 @@
   <script src="/app/start.js"></script>
   </div>
   </div>
-  <script src="/orchestrate.js?v=20261109cli"></script>
+  <script src="/orchestrate.js?v=20261126mode"></script>
 </body>
 </html>

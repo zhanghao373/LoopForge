@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -44,6 +45,7 @@ func main() {
 		StatePath:              firstNonEmpty(*statePath, os.Getenv("AGENTFLOW_RUNNER_STATE_PATH")),
 		Name:                   firstNonEmpty(*name, os.Getenv("AGENTFLOW_RUNNER_NAME")),
 		DefaultWorkspaceRoot:   firstNonEmpty(*workspace, os.Getenv("AGENTFLOW_RUNNER_WORKSPACE")),
+		LocalSourceRoots:       filepath.SplitList(os.Getenv("AGENTFLOW_RUNNER_SOURCE_ROOTS")),
 		MaxConcurrency:         *concurrency,
 		HeartbeatInterval:      *heartbeat,
 		LongPollTimeout:        *longPoll,

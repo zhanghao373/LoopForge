@@ -2846,6 +2846,24 @@ func TestResolveNodeExecutorPrefersAgentModel(t *testing.T) {
 	}
 }
 
+func TestResolveNodeExecutorOverride(t *testing.T) {
+	t.Parallel()
+	role := domain.AgentDefinition{ID: "reviewer", ExecutorID: "codex", Model: "codex-policy", Effort: "high"}
+	for _, override := range []string{"codex", "cursor", "a2a"} {
+		ex, err := resolveNodeExecutor(nil, domain.WorkflowNode{ExecutorOverrideID: override}, role)
+		if err != nil || ex.ID != override {
+			t.Fatalf("override %s: executor = %+v, err = %v", override, ex, err)
+		}
+		if override == "codex" {
+			if ex.Model != role.Model || ex.Effort != role.Effort {
+				t.Fatalf("explicit role executor lost its model and effort: %+v", ex)
+			}
+		} else if ex.Model != "" || ex.Effort != "" {
+			t.Fatalf("override %s inherited another provider's configuration: %+v", override, ex)
+		}
+	}
+}
+
 func TestResolveSandboxResourcesRequiresDockerfileForDocker(t *testing.T) {
 	t.Parallel()
 	s, err := repo.OpenTest()

@@ -144,9 +144,10 @@ const agent = {
 const workflowNode = {artifactOutputs: [{name:'report',path:'node.md',required:true}]};
 assert.deepEqual(effectiveNodeArtifacts(workflowNode, agent).map(x=>x.path), ['node.md','evidence.md']);
 assert.deepEqual(roleGates(agent).map(x=>x.name), ['role shared','role only']);
-assert.ok(code.includes('Agent 节点先提交结构化终态，随后校验产物，最后执行可选门禁命令'));
+assert.ok(code.includes('先提交结构化终态'));
+assert.ok(code.includes('继承角色门禁'));
+assert.ok(code.includes('引用 Verifier'));
 assert.ok(code.includes('pass | rework | fail | human'));
-assert.ok(!code.includes('node?.verification'));
 `
 	out, err := exec.Command(node, "-e", script).CombinedOutput()
 	if err != nil {
@@ -691,6 +692,7 @@ func TestGotoCredentialBranches(t *testing.T) {
 const assert = require('node:assert/strict');
 const code = require('node:fs').readFileSync('` + appBundlePath(t) + `', 'utf8');
 let view = 'settings', now = 0, settingsRouteTransition = null;
+const state = {data: {capabilities: {personalExecutors: false}}};
 const switchView = () => {}, activeViewName = () => view;
 const performance = {now: () => (now += 100)};
 const requestAnimationFrame = fn => fn();
@@ -710,6 +712,9 @@ gotoCredential('gitToken');
 assert.deepEqual(revealed, ['gitToken'], 'configured credentials expand in place');
 gotoCredential('codeBuddyApiKey');
 assert.deepEqual(opened, ['codeBuddyApiKey'], 'missing credentials open the wizard on step 2');
+state.data.capabilities.personalExecutors = true;
+gotoCredential('codeBuddyApiKey');
+assert.deepEqual(opened, ['codeBuddyApiKey'], 'local mode suppresses the CodeBuddy credential prompt');
 visible = false;
 gotoCredential('codexApiKey');
 view = 'issues'; visible = true;

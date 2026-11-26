@@ -6,6 +6,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 )
 
 // Users who have not configured their own CodeBuddy API Key can still chat
@@ -24,7 +25,7 @@ func errAssistantSponsoredModel(models []string) string {
 
 // assistantSharedKey returns the key users without their own borrow.
 func (h *assistantHandlers) assistantSharedKey() (repo.SharedCodeBuddyKey, bool) {
-	if h == nil || h.deps == nil || h.repo == nil {
+	if runtime.PersonalExecutorsOnly() || h == nil || h.deps == nil || h.repo == nil {
 		return repo.SharedCodeBuddyKey{}, false
 	}
 	return h.repo.SharedCodeBuddyKey()

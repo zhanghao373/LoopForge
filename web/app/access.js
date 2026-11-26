@@ -39,6 +39,7 @@ function accessViewActive(){return !!$('#guideView')?.classList.contains('active
 let credentialFocusRequest=0;
 function gotoCredential(name,sshRemote){
   const request=++credentialFocusRequest;
+  if(name==='codeBuddyApiKey'&&state.data?.capabilities?.personalExecutors)return;
   if(!CREDENTIAL_FIELDS[name]){switchView('settings');return}
   if(name==='gitSshKey')return openGitSSHKeys(sshRemote);
   switchView('settings');
@@ -121,9 +122,11 @@ function renderAccessTokens(openCreate=false){
     return;
   }
   const base=getPublicBaseURL();
+  const personal=state.data?.capabilities?.personalExecutors;
+  if(personal&&state.accessClient==='codebuddy')state.accessClient='codex';
   const revealedSpec=state.revealedToken?accessMcpClientSpec(state.accessClient,base,state.revealedToken):null;
   const revealedPrompt=revealedSpec?accessMcpAgentPrompt(revealedSpec,base,state.revealedToken):'';
-  const revealClients=state.revealedToken?[['cursor','Cursor'],['claude','Claude Code'],['codebuddy','CodeBuddy'],['codex','Codex']].map(([id,label])=>`<button type="button" class="${state.accessClient===id?'active':''}" data-revealed-client="${id}">${label}</button>`).join(''):'';
+  const revealClients=state.revealedToken?[['cursor','Cursor'],['claude','Claude Code'],['codebuddy','CodeBuddy'],['codex','Codex']].filter(([id])=>!personal||id!=='codebuddy').map(([id,label])=>`<button type="button" class="${state.accessClient===id?'active':''}" data-revealed-client="${id}">${label}</button>`).join(''):'';
   const reveal=state.revealedToken?`<div class="token-reveal"><b>访问密钥已创建，可直接复制完整配置提示词</b><p>先选择客户端；复制内容会自动带上本次访问密钥和 Endpoint，无需再次替换占位符。平台只保存哈希，关闭后无法再次查看明文。</p><div class="access-clients token-client-picker">${revealClients}</div><div class="token-reveal-line"><code>${escapeHTML(state.revealedToken)}</code><button type="button" class="button primary small" data-copy-revealed-prompt="${encodeURIComponent(revealedPrompt)}">⧉ 复制 ${escapeHTML(revealedSpec.label)} 配置提示词</button><button type="button" class="button ghost small" data-copy-revealed>仅复制密钥</button><button type="button" class="button ghost small" data-close-revealed>已保存</button></div></div>`:'';
   const rows=tokens.length?tokens.map(t=>{const revoked=!!t.revokedAt,expired=t.expiresAt&&new Date(t.expiresAt)<new Date();return `<div class="token-row ${revoked||expired?'revoked':''}"><div class="token-row-main"><b>${escapeHTML(t.name)}</b><code>${escapeHTML(t.prefix)}••••••••</code></div><div class="token-meta">创建 ${relativeTime(t.createdAt)} · ${t.lastUsedAt?`最近使用 ${relativeTime(t.lastUsedAt)}`:'尚未使用'} · ${revoked?'已撤销':expired?'已过期':`有效至 ${new Date(t.expiresAt).toLocaleDateString()}`}</div>${!revoked&&!expired?`<button type="button" class="button danger-outline small" data-revoke-token="${escapeHTML(t.id)}">撤销</button>`:''}</div>`}).join(''):'<div class="token-empty">还没有访问密钥，创建后即可接入 REST API 和 MCP。</div>';
   const activeCount=tokens.filter(t=>!t.revokedAt&&(!t.expiresAt||new Date(t.expiresAt)>new Date())).length;

@@ -79,10 +79,10 @@ function humanGateSectionsHTML(nr,run,node){
   }
   return sections.join('');
 }
-function humanDecisionPanelHTML(runId,nodeId,nr,node,nodes){
+function humanDecisionPanelHTML(runId,nodeId,nr,node,nodes,reviewFiles=''){
   if(cachedRun(runId)?.status==='queued')return '';
   const field=isScriptWorkflowNode(node)?'':humanContextFieldHTML();
-  return `<div class="human-decision" data-human-context-root><div class="human-gate-brief">${humanGateSectionsHTML(nr,cachedRun(runId),node)}</div>${field}<div class="ap-buttons">${waitingActionButtons(runId,nodeId,nr,node,nodes)}</div></div>`;
+  return `<div class="human-decision" data-human-context-root><div class="human-gate-brief">${humanGateSectionsHTML(nr,cachedRun(runId),node)}</div>${reviewFiles}${field}<div class="ap-buttons">${waitingActionButtons(runId,nodeId,nr,node,nodes)}</div></div>`;
 }
 function failedNodeId(run){
   const nodes=run?.workflowSnapshot?.nodes||[];
@@ -459,6 +459,64 @@ function bindApprovalBatch(){
   const reject=host.querySelector('[data-ap-batch-reject]');if(reject)reject.onclick=()=>batchRejectApprovals();
 }
 
+function approvalReviewArtifacts(run,nodeId){
+  const workflow=run.workflowSnapshot||{},nodes=workflow.nodes||[];
+  if(!nodeId||!nodes.length)return [];
+  const order=new Map([[nodeId,0]]),edges=workflow.edges||[];
+  const preceding=new Map();
+  for(const edge of edges){
+    if(edge.when&&edge.when!=='success')continue;
+    const list=preceding.get(edge.target)||[];
+    list.push(edge.source);
+    preceding.set(edge.target,list);
+  }
+  if(edges.length){
+    const queue=[nodeId];
+    for(let i=0;i<queue.length;i++){
+      const id=queue[i];
+      for(const previous of preceding.get(id)||[]){
+        if(order.has(previous))continue;
+        order.set(previous,order.get(id)+1);
+        queue.push(previous);
+      }
+    }
+  }else{
+    const current=nodes.findIndex(node=>node.id===nodeId);
+    for(let i=current-1;i>=0;i--)order.set(nodes[i].id,current-i);
+  }
+
+  const byNode=new Map(nodes.map(node=>[node.id,node]));
+  const currentFiles=new Map();
+  for(const artifact of run.artifacts||[]){
+    const node=byNode.get(artifact.nodeId);
+    const execution=run.nodes?.[artifact.nodeId];
+    if(!artifact.id||!order.has(artifact.nodeId)||artifact.path?.startsWith('.agentflow/'))continue;
+    if(node?.type==='approval'&&artifact.name==='decision')continue;
+    if(execution&&execution.status!=='waiting_approval'&&execution.status!=='succeeded')continue;
+    if(execution?.attempt>0&&artifact.attempt!==execution.attempt)continue;
+    const key=JSON.stringify([artifact.nodeId,artifact.repositoryDir,artifact.path||artifact.name]);
+    const saved=currentFiles.get(key);
+    if(!saved||artifact.attempt>=saved.attempt)currentFiles.set(key,artifact);
+  }
+
+  return Array.from(currentFiles.values()).sort((a,b)=>order.get(a.nodeId)-order.get(b.nodeId));
+}
+function approvalReviewFilesHTML(run,nodeId){
+  const artifacts=approvalReviewArtifacts(run,nodeId);
+  if(!artifacts.length){
+    if(!run.artifactCount)return '';
+    return `<section class="ap-review-files"><strong>审阅产物</strong><button type="button" class="button ghost small" data-open-logs="${escapeHTML(run.id)}">查看运行里的产物</button></section>`;
+  }
+  const nodes=new Map((run.workflowSnapshot?.nodes||[]).map(node=>[node.id,node.name]));
+  const links=artifacts.map(artifact=>{
+    const label=artifact.path||artifact.name;
+    const url='/api/runs/'+encodeURIComponent(run.id)+'/artifacts/'+encodeURIComponent(artifact.id);
+    const detail=[nodes.get(artifact.nodeId),artifact.repositoryDir].filter(Boolean).join(' · ');
+    return `<a class="ap-review-file" href="${url}" data-ap-artifact="${escapeHTML(artifact.id)}" data-ap-run="${escapeHTML(run.id)}" aria-haspopup="dialog"><span>${escapeHTML(label)}</span><small>${escapeHTML(detail)}</small></a>`;
+  }).join('');
+  return `<section class="ap-review-files" aria-label="审阅产物"><strong>审阅产物</strong><div class="ap-review-file-list">${links}</div></section>`;
+}
+
 // The decision / paused panels are shared with the issue drawer and run detail, so
 // only the card shell changes here; #approvalsView CSS reorders their buttons.
 function approvalCardHTML(r){
@@ -472,8 +530,8 @@ function approvalCardHTML(r){
   const sep='<span class="ap-sep" aria-hidden="true">·</span>';
   const sideButton=issue?`<button class="button ghost small" data-open-issue="${escapeHTML(issue.id)}">打开需求</button>`:`<button class="button ghost small" data-open-logs="${escapeHTML(r.id)}">${alignRun?'查看对齐详情':'排查日志'}</button>`;
   const more=`<div class="ap-more"><button type="button" class="ap-more-toggle" data-ap-more title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${huiIcon('more-horizontal')}</button><div class="ap-more-menu" role="menu" hidden><button type="button" class="ap-menu-item danger" role="menuitem" data-cancel-run="${escapeHTML(r.id)}">${huiIcon('close')}<span>取消流程</span></button></div></div>`;
-  const decision=r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[]);
-  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}已等待 ${relativeTime(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
+  const decision=r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[],approvalReviewFilesHTML(r,nodeId));
+  return `<div data-ap-context="${escapeHTML(approvalKey(r.id,nodeId))}" class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}已等待 ${relativeTime(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
 }
 function closeApprovalMoreMenus(except){
   document.querySelectorAll('#approvalsView .ap-more.is-open').forEach(more=>{
@@ -509,7 +567,9 @@ async function renderApprovals(background=false){
   if(!background){try{const [runs,tasks,issues]=await Promise.all([api('/api/runs'),api('/api/tasks'),api('/api/issues')]);state.data.runs=runs;state.data.tasks=tasks;state.data.issues=issues}catch(e){toast(e.message,'err')}}
   const items=(await Promise.all(approvalItems().map(async summary=>{
     const cached=cachedRun(summary.id);
-    if(cached?.workflowSnapshot?.id)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
+    if(cached?.workflowSnapshot?.nodes?.length&&cached.updatedAt===summary.updatedAt){
+      return {...cached,...summary,artifacts:cached.artifacts,workflowSnapshot:cached.workflowSnapshot};
+    }
     try{
       const full=await api(`/api/runs/${encodeURIComponent(summary.id)}`,{silent:true});
       if(full?.id){
@@ -528,7 +588,21 @@ async function renderApprovals(background=false){
   const batch=$('#approvalBatch');
   if(batch){batch.innerHTML=approvalBatchBarHTML(items);batch.hidden=!batch.innerHTML;bindApprovalBatch()}
   const host=$('#approvalList');
+  const drafts=new Map(Array.from(host.querySelectorAll('[data-ap-context]')).map(card=>[
+    card.dataset.apContext,card.querySelector('[data-human-context]')?.value,
+  ]));
   host.innerHTML=items.map(approvalCardHTML).join('')||`<div class="approval-empty"><div class="empty-box"><span class="ap-empty-icon">${huiIcon('check')}</span><b>没有需要你拍板的需求</b><p>流程停在人工确认节点时会出现在这里。</p></div></div>`;
+  host.querySelectorAll('[data-ap-context]').forEach(card=>{
+    const draft=drafts.get(card.dataset.apContext);
+    const input=card.querySelector('[data-human-context]');
+    if(input&&draft!==undefined)input.value=draft;
+  });
+  const byRun=new Map(items.map(run=>[run.id,run]));
+  host.querySelectorAll('[data-ap-artifact]').forEach(link=>link.onclick=event=>{
+    if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+    event.preventDefault();
+    previewArtifact(byRun.get(link.dataset.apRun),link.dataset.apArtifact,link);
+  });
   host.querySelectorAll('[data-open-issue]').forEach(b=>b.onclick=()=>openIssueDetail(b.dataset.openIssue,'sop'));
   host.querySelectorAll('[data-open-logs]').forEach(b=>b.onclick=()=>openRunFromId(b.dataset.openLogs,{forceRuns:true}));
   host.querySelectorAll('[data-cancel-run]').forEach(b=>b.onclick=()=>{closeApprovalMoreMenus();cancelRunFlow(b.dataset.cancelRun)});

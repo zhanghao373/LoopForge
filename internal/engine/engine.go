@@ -63,6 +63,10 @@ type Engine struct {
 	// branch with their head commits, for mode=mr gates. Nil cannot verify.
 	FindBranchMRsInto func(domain.BranchMRQuery) ([]domain.DeliveryMR, error)
 
+	// ReviewVerifier runs one stateless model review in the platform's CLI
+	// runtime. It receives only bounded text evidence from the gate.
+	ReviewVerifier func(context.Context, domain.Run, domain.VerifierReview, VerifierEvidence) (VerifierVerdict, error)
+
 	// runnerDispatchNotify wakes long-polling CLI runners when the engine
 	// queues a runner task. Wired via SetRunnerDispatchNotify (httpapi.New);
 	// nil falls back to the runner claim retry interval.

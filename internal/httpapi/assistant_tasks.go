@@ -436,13 +436,13 @@ func firstNonEmpty(values ...string) string {
 func scheduledRunModel(ctx context.Context, requested string, user domain.User) (string, error) {
 	requested = strings.TrimSpace(requested)
 	env := user.CodeBuddyInternetEnvironment
-	model := assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user)
+	model := assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user, false)
 	if requested == "" || model == requested {
 		return model, nil
 	}
 	if engine, _ := assistantModelEngine(requested); engine == assistantEngineCodeBuddy {
 		refreshCLIModels(ctx, env, user.CodeBuddyAPIKey)
-		if model = assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user); model == requested {
+		if model = assistantAllowedUserModel(requested, loadAssistantModels(ctx, env), user, false); model == requested {
 			return model, nil
 		}
 	}

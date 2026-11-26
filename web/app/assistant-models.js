@@ -150,7 +150,7 @@
   function load() {
     if (!loading) {
       loading = fetchCatalog().then(data => {
-        if (data?.models?.length) catalog = {default: data.default || DEFAULT_MODEL, models: data.models, engines: data.engines || []};
+        if (data?.models?.length) catalog = {default: data.default || DEFAULT_MODEL, models: data.models, engines: data.engines || [], personalExecutors: !!data.personalExecutors};
         return catalog;
       }).catch(() => catalog).finally(() => { loading = null; });
     }

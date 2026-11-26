@@ -115,6 +115,16 @@ func (d *Daemon) handleRunnerWorkspaceBrowser(ctx context.Context, request domai
 }
 
 func (d *Daemon) readRunnerWorkspace(ctx context.Context, request domain.RunnerWorkspaceRequest) domain.RunnerWorkspaceResponse {
+	if request.Operation == domain.RunnerWorkspaceOperationValidateLocalSources {
+		paths, err := d.resolveLocalSources(request.LocalSourcePaths)
+		if err != nil {
+			return domain.RunnerWorkspaceResponse{Status: 400, Error: err.Error()}
+		}
+		return runnerWorkspacePayload(paths)
+	}
+	if request.Operation == domain.RunnerWorkspaceOperationLocalSources {
+		return d.readLocalSources(request.Path)
+	}
 	if request.Operation == "conversation_process" {
 		return d.conversationProcess(ctx, request)
 	}

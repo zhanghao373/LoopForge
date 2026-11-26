@@ -269,3 +269,31 @@ test('run activation waits for workspace restoration, deduplicates intent, and f
   assert.equal(app.document.querySelector('[data-run-activation-status]'), null);
   assert.equal(app.document.querySelector('[data-retry-node]').disabled, false);
 });
+
+test('local run evaluation submits the feedback on Codex without a CodeBuddy key', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  app.router.post('/api/runs/local-eval/eval', {
+    id: 'eval-local', runId: 'local-eval', status: 'running', model: 'codex:default', feedback: '评审为何重试'
+  });
+  app.evaluate(`
+    state.data.capabilities={...state.data.capabilities,personalExecutors:true};
+    state.currentUser.codeBuddyApiKeyConfigured=false;
+    state.selectedRun='local-eval';
+    state.activeRun={id:'local-eval',status:'succeeded',workflowId:'flow-1',nodes:{}};
+    state.data.runs=[state.activeRun];
+    renderRunDetail(state.activeRun);
+  `);
+  assert.equal(app.evaluate(`!!document.querySelector('[data-run-tab="eval"]')`), true);
+  assert.equal(app.evaluate(`!!document.querySelector('#runEvalModelPicker')`), false);
+  app.evaluate(`
+    const feedback=document.querySelector('[data-run-eval-feedback]');
+    feedback.value='  评审为何重试  ';
+    feedback.dispatchEvent(new Event('input',{bubbles:true}));
+  `);
+  await app.evaluate(`startRunEval(state.activeRun)`);
+  const request = app.router.calls.find(call => call.method === 'POST' && call.path === '/api/runs/local-eval/eval');
+  assert.deepEqual(request?.body, { model: 'codex:default', feedback: '评审为何重试' });
+  assert.equal(app.evaluate(`document.querySelector('[data-start-run-eval]').disabled`), true);
+  app.evaluate(`state.runEvalStream?.close()`);
+});

@@ -343,3 +343,25 @@ func TestRunnerSessionLookup(t *testing.T) {
 		t.Fatal("expired session resolved")
 	}
 }
+
+func TestRunnerHeartbeatPreservesCursorLocalLogin(t *testing.T) {
+	s := newTestRunner(t)
+	now := time.Now().UTC()
+	runner := domain.Runner{ID: "runner-cursor-auth", RunnerVersion: domain.RunnerVersionLocalConversationAuth, Runtimes: []domain.RunnerRuntime{{Provider: "cursor"}}}
+	if err := s.PutRunner(runner); err != nil {
+		t.Fatal(err)
+	}
+	if runner.RuntimeAuthMode("cursor") != domain.RuntimeAuthPersonal {
+		t.Fatal("legacy Cursor settings must default to personal credentials")
+	}
+	if err := s.SetRunnerRuntimeAuthMode(runner.ID, "cursor", domain.RuntimeAuthLocal, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunnerHeartbeat(runner.ID, []domain.RunnerRuntime{{Provider: "cursor"}}, runner.RunnerVersion, now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := s.Runner(runner.ID)
+	if saved.RuntimeAuthMode("cursor") != domain.RuntimeAuthLocal {
+		t.Fatal("heartbeat discarded Cursor's local login preference")
+	}
+}

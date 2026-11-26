@@ -54,6 +54,16 @@ func TestProjectContentWritesRequireMembership(t *testing.T) {
 	if err := s.PutProject(domain.Project{ID: "shared", Name: "Shared"}); err != nil {
 		t.Fatal(err)
 	}
+	for _, endpoint := range []string{"projects", "preview", "import"} {
+		path := "/api/sync/linear/" + endpoint
+		body := `{"projectId":"p1"}`
+		if code := call(viewer, "POST", path, body); code != http.StatusForbidden {
+			t.Fatalf("viewer Linear %s: %d", endpoint, code)
+		}
+		if code := call(member, "POST", path, body); code != http.StatusBadRequest {
+			t.Fatalf("member Linear %s without a key: %d", endpoint, code)
+		}
+	}
 
 	issue := `{"id":"i1","projectId":"p1","title":"Fix login"}`
 	if code := call(other, "POST", "/api/issues", issue); code != 403 {
@@ -114,6 +124,13 @@ func TestProjectContentWritesRequireMembership(t *testing.T) {
 	}
 	if code := call(other, "POST", "/api/runs/r1/cancel", `{}`); code != 403 {
 		t.Fatalf("non-member cancel run: %d", code)
+	}
+	guidance := `{"nodeId":"frontend","attempt":1,"startedAt":"2026-11-26T06:00:00Z","guidance":"Use the existing filter"}`
+	if code := call(viewer, "POST", "/api/runs/r1/guide-node", guidance); code != http.StatusForbidden {
+		t.Fatalf("viewer guide node: %d", code)
+	}
+	if code := call(member, "POST", "/api/runs/r1/guide-node", guidance); code != http.StatusConflict {
+		t.Fatalf("guide node of completed run: %d", code)
 	}
 	if code := call(other, "POST", "/api/runs/r1/workspace/terminal", `{"command":"id"}`); code != 403 {
 		t.Fatalf("non-member terminal: %d", code)

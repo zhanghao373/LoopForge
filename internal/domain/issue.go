@@ -51,7 +51,7 @@ type Issue struct {
 	DeliveryUpdatedAt time.Time               `json:"deliveryUpdatedAt,omitempty"`
 	Kind              string                  `json:"kind,omitempty"` // requirement, issue
 	Clarification     ClarificationAssessment `json:"clarification"`
-	Source            string                  `json:"source,omitempty"` // local, gongfeng, tapd
+	Source            string                  `json:"source,omitempty"` // local, gongfeng, tapd, linear
 	// TapdID is an optional metrics-only link for a platform-created requirement.
 	// It does not create a tracker binding or authorize TAPD write-back.
 	TapdID      string       `json:"tapdId,omitempty"`
@@ -181,18 +181,20 @@ type ClarificationQuestion struct {
 	FreeText    bool     `json:"freeText,omitempty"`
 }
 
-// ExternalRef links a local Issue to an external issue/story in Gongfeng or TAPD.
+// ExternalRef links a local Issue to its source in an external tracker.
 type ExternalRef struct {
 	// SourceContentHash records the last imported body so provider adapters can
 	// distinguish a remote edit from a locally clarified requirement.
-	SourceContentHash string    `json:"sourceContentHash,omitempty"`
-	Source            string    `json:"source"`        // gongfeng, tapd
-	ExternalID        string    `json:"externalId"`    // gongfeng issue id or tapd story id
-	ExternalIID       int       `json:"externalIid"`   // gongfeng issue iid (for URL)
-	ExternalURL       string    `json:"externalUrl"`   // clickable URL
-	ExternalState     string    `json:"externalState"` // opened/closed for gongfeng, etc.
-	ExternalType      string    `json:"externalType"`  // issue, story
-	SyncedAt          time.Time `json:"syncedAt"`
+	SourceContentHash  string     `json:"sourceContentHash,omitempty"`
+	Source             string     `json:"source"`                       // gongfeng, tapd
+	ExternalID         string     `json:"externalId"`                   // gongfeng issue id or tapd story id
+	ExternalIdentifier string     `json:"externalIdentifier,omitempty"` // e.g. ENG-123 in Linear
+	ExternalUpdatedAt  *time.Time `json:"externalUpdatedAt,omitempty"`
+	ExternalIID        int        `json:"externalIid"`   // gongfeng issue iid (for URL)
+	ExternalURL        string     `json:"externalUrl"`   // clickable URL
+	ExternalState      string     `json:"externalState"` // opened/closed for gongfeng, etc.
+	ExternalType       string     `json:"externalType"`  // issue, story
+	SyncedAt           time.Time  `json:"syncedAt"`
 	// Imported is set for 导入 TAPD / 新建 TAPD. Iteration sync must not
 	// delete these just because they are outside the current TAPD pool.
 	Imported bool `json:"imported,omitempty"`
@@ -284,6 +286,8 @@ func (i Issue) IdentityBlock() string {
 		b.WriteString("TAPD")
 	case "gongfeng":
 		b.WriteString("工蜂")
+	case "linear":
+		b.WriteString("Linear")
 	default:
 		b.WriteString("本地")
 	}
@@ -309,7 +313,11 @@ func (i Issue) IdentityBlock() string {
 		b.WriteString(extID)
 		b.WriteByte('\n')
 	}
-	if ref.ExternalIID != 0 {
+	if identifier := strings.TrimSpace(ref.ExternalIdentifier); identifier != "" {
+		b.WriteString("- 外部编号：")
+		b.WriteString(identifier)
+		b.WriteByte('\n')
+	} else if ref.ExternalIID != 0 {
 		b.WriteString("- 外部编号：")
 		b.WriteString(strconv.Itoa(ref.ExternalIID))
 		b.WriteByte('\n')

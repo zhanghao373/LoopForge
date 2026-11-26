@@ -103,6 +103,7 @@
 .node-inspector-title .node-activity-inline[hidden]{display:none}
 /* 运行状态转圈与活动文字高光共享真实执行状态，不影响历史日志。 */
 .node-inspector .node-inspector-status{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
+.node-inspector-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:6px;flex-shrink:0}
 .node-inspector-status.is-running::before{content:"";width:12px;height:12px;box-sizing:border-box;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:node-status-spin .85s linear infinite}
 @keyframes node-status-spin{to{transform:rotate(360deg)}}
 @supports ((background-clip:text) or (-webkit-background-clip:text)){

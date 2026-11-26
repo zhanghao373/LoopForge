@@ -8,6 +8,7 @@ import (
 
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
+	"agentflow/internal/runtime"
 )
 
 func (h *assistantHandlers) prepareScheduleJob(job domain.ScheduleJob) (string, error) {
@@ -71,6 +72,9 @@ func (h *assistantHandlers) prepareScheduleJob(job domain.ScheduleJob) (string, 
 // the user's own key).
 func (h *assistantHandlers) scheduleJobAssistantUser(job domain.ScheduleJob, model string) (domain.User, []string, error) {
 	engine, _ := assistantModelEngine(model)
+	if runtime.PersonalExecutorsOnly() && !runtime.IsPersonalExecutor(engine) {
+		return domain.User{}, nil, fmt.Errorf("请选择 Codex、Cursor 或 Claude Code")
+	}
 	if job.RunAsUserID > 0 {
 		return h.scheduleJobRunAsUser(job, engine)
 	}

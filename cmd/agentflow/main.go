@@ -136,6 +136,9 @@ func main() {
 	}
 	log.Printf("storage driver=%v database=%v role=%s", s.StorageInfo()["driver"], s.StorageInfo()["database"], role)
 	e := engine.New(s, runtime.NewManagerWithLimit(root, *workerConcurrency))
+	if role == "worker" {
+		httpapi.ConfigureWorkerVerifierReview(e, s)
+	}
 	runtime.PrebuildIsolatedImage()
 	host, _ := os.Hostname()
 	instanceID := strings.TrimSpace(os.Getenv("AGENTFLOW_INSTANCE_ID"))
@@ -385,6 +388,7 @@ func workerHandler(e *engine.Engine) http.Handler {
 		_, _ = fmt.Fprintf(w, `{"status":"ok","role":"worker","activeRuns":%d}`, e.ActiveRunCount())
 	})
 	mux.HandleFunc("POST /internal/runs/{id}/interrupt", e.HandleRunInterrupt)
+	mux.HandleFunc("POST /internal/runs/{id}/guide-node", e.HandleNodeGuidance)
 	mux.HandleFunc("POST /internal/workspace-checkpoint", e.HandleWorkspaceCheckpoint)
 	return mux
 }

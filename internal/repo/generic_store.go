@@ -79,6 +79,10 @@ func (r *CatalogRepo) PutGenericTemplate(template GenericTemplate) error {
 // UpdateGenericWorkflow writes the workflow half of a stored template and
 // leaves the bundled roles, rules and skills untouched.
 func (r *CatalogRepo) UpdateGenericWorkflow(workflow domain.WorkflowDefinition) (domain.WorkflowDefinition, error) {
+	workflow.Generic, workflow.VerifierSnapshots = true, nil
+	if _, err := r.WorkflowVerifiers(workflow, nil); err != nil {
+		return domain.WorkflowDefinition{}, err
+	}
 	if err := domain.ValidateWorkflowPreparation(workflow); err != nil {
 		return domain.WorkflowDefinition{}, err
 	}
