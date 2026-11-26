@@ -178,6 +178,9 @@ func main() {
 	}
 	config.SetCurrent(endpoints)
 	e.ConfigurePlatformMCP(endpoints.PlatformBase, endpoints.PlatformMCPToken)
+	if err := e.ConfigureA2A(os.Getenv("AGENTFLOW_A2A_RPC_URL"), os.Getenv("AGENTFLOW_A2A_TOKEN")); err != nil {
+		log.Fatal(err)
+	}
 	if endpoints.PlatformBase == "" {
 		log.Printf("platform MCP / knowledge proxy: no sandbox-reachable platform URL; cloud runs skip them (set AGENTFLOW_PLATFORM_MCP_URL)")
 	} else {
@@ -225,7 +228,12 @@ func main() {
 		}
 		syncSvc.StartMRStateSync(s)
 		notifications := notification.New(s)
-		opts := httpapi.BackgroundOptions{}
+		webChat, stopWebChat, err := startWebChat(claimCtx, s)
+		if err != nil {
+			log.Fatalf("start web chat: %v", err)
+		}
+		defer stopWebChat()
+		opts := httpapi.BackgroundOptions{WebChat: webChat}
 		if inherited {
 			log.Printf("taking over listener %s from pid %d; startup recovery waits for it to exit", mainLn.Addr(), os.Getppid())
 			opts.RecoveryGate = predecessorExited()
@@ -233,6 +241,11 @@ func main() {
 		handler, bg := httpapi.NewWithNotificationsAndBackground(claimCtx, s, e, syncSvc, *basicUser, *basicPass, notifications, opts)
 		background = bg
 		defer background.Stop()
+		stopChatBridge, err := startChatBridge(claimCtx, s)
+		if err != nil {
+			log.Fatalf("start chat bridge: %v", err)
+		}
+		defer stopChatBridge()
 		notifications.Start(claimCtx)
 		srv = &http.Server{Addr: listenAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 		agentToolSrv = &http.Server{Handler: httpapi.AgentToolHandler(handler), ReadHeaderTimeout: 10 * time.Second}

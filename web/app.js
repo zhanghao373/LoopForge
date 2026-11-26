@@ -912,6 +912,8 @@ async function boot(){
   const view=restoredView();
   const shell = await api('/api/bootstrap', {silent: view==='runs'});
   state.data = Object.assign(state.data, shell);
+  const agentChatEntry = $('[data-agent-chat-entry]');
+  if (agentChatEntry) agentChatEntry.hidden = shell.capabilities?.agentChat !== true;
   const savedProject=urlParams.get('projectId')||localStorage.getItem('agentflow.activeProject');
   state.projectFilter=(state.data.projects||[]).some(p=>p.id===savedProject)?savedProject:defaultProjectId(state.data.projects,state.currentUser?.id);
   state.workflow = clone(restoreOpenWorkflow());
@@ -996,7 +998,7 @@ function bind(){
       resetProjectAdminDetail();
     }
     if(btn.id==='railSettingsEntry'&&(settingsRouteTransition?.target?isSettingsManagementView(settingsRouteTransition.target):document.body.classList.contains('management-mode'))){
-      switchView('collaboration');
+      switchView('sops');
     }else switchView(btn.dataset.view);
   });
   $('#settingsSidebarToggle')?.addEventListener('click',()=>{cancelSettingsRouteTransition();setSettingsSidebarExpanded(!settingsSidebarExpanded())});
@@ -1590,7 +1592,7 @@ function settingsSidebarExpanded(){
 }
 let settingsSidebarEntryFrame=0;
 let settingsSidebarWasManaged=false;
-const settingsManagementViews=['settings','assistant','projects','bots','sops','flow','runs','aiSchedules','agents','mcp','rules','skills','runners','dockerfiles','environments','sandboxes','guide','platform'];
+const settingsManagementViews=['settings','assistant','projects','bots','aiSchedules','agents','mcp','rules','skills','runners','dockerfiles','environments','sandboxes','guide','platform'];
 const settingsRouteMotion=matchMedia('(prefers-reduced-motion: reduce)');
 let settingsRouteTransition=null;
 let settingsRouteApplying=false;
@@ -1800,11 +1802,13 @@ function restoredView(){
   if(hash==='playbooks')return 'sops';
   if(hash==='management')return 'settings';
   if(titles[hash])return hash;
+  const query=new URL(location.href).searchParams;
+  if(query.has('chatSession')||query.has('chatIssue'))return 'collaboration';
   const saved=localStorage.getItem('agentflow.activeView');
   if(saved==='playbooks')return 'sops';
   if(saved==='management')return 'settings';
   if(titles[saved]&&saved!=='dashboard')return saved;
-  return 'collaboration';
+  return 'sops';
 }
 function routePart(index){
   const raw=(location.hash||'').replace(/^#\/?/,'').split('?')[0];
@@ -1942,7 +1946,12 @@ function switchView(name){
   if(previous==='observability'&&name!=='observability'&&typeof obsDisposeCharts==='function'){obsCollapse?.({silent:true});obsDisposeCharts();obsDisposeSelects?.()}
   state.currentView=name;
   if(name!=='runs')stopQueuedRunRefresh();
-  $$('.nav[data-view]').forEach(n=>n.classList.toggle('active',settingsNavMatches(n,name)));
+  $$('.nav[data-view]').forEach(n=>{
+    const active=settingsNavMatches(n,name);
+    n.classList.toggle('active',active);
+    if(active)n.setAttribute('aria-current','page');
+    else n.removeAttribute('aria-current');
+  });
   syncAssetTypeTabs(name);
   $$('.view').forEach(v=>v.classList.remove('active'));
   $(`#${target}View`).classList.add('active');
@@ -1958,7 +1967,7 @@ function switchView(name){
   setSettingsSidebarExpanded(!narrowSettings?isPureManagement:staying?settingsSidebarExpanded():!!prevView&&!isSettingsManagementView(previous));
   $('#managementEntry')?.classList.toggle('active', isPureManagement);
   $('#railSettingsEntry')?.classList.toggle('active', isPureManagement);
-  const noSidebarViews = ['issues', 'approvals', 'observability'];
+  const noSidebarViews = ['sops', 'flow', 'runs', 'issues', 'approvals', 'observability'];
   document.body.classList.toggle('no-sidebar', noSidebarViews.includes(name));
   document.body.classList.toggle('chat-next-active', name==='collaboration');
   if(name==='collaboration'||isPureManagement)mountNativeChat();

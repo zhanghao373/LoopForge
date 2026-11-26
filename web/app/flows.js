@@ -327,6 +327,7 @@ function renderCanvas(){
   const wf=state.workflow,empty=$('#canvasEmpty');
   flowNodeMetrics.cache?.clear();
   if(!wf){nodes.innerHTML='';if(empty)empty.hidden=false;renderEdges();flowViewport.afterRender();return}
+  wf.edges??=[];
   if(empty)empty.hidden=(wf.nodes||[]).length>0;
   spreadCrowdedNodes(wf);
   const ro=flowReadOnly();

@@ -194,7 +194,7 @@ func resolveNodeExecutor(st *repo.Store, node domain.WorkflowNode, agent domain.
 	if executorID == "" {
 		executorID = "codebuddy"
 	}
-	ex, found := repo.BuiltInExecutor(executorID)
+	ex, found := repo.SOPExecutor(executorID)
 	if !found && executorID == "mock" {
 		// The deterministic mock is reserved for internal tests and old run snapshots.
 		ex, found = st.Executor(executorID)
@@ -340,6 +340,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		nr.Status = "running"
 		if !continuingInterruptedAttempt(nr) {
 			nr.Attempt++
+			nr.A2ATaskID = ""
 		}
 		executionAttempt = nr.Attempt
 		nr.StartedAt = time.Now().UTC()
@@ -580,6 +581,8 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 	loopFeedback := ""
 	invocationSeq := 0
 	requiresSubmit := false
+	var remoteGate *domain.GateResult
+	remoteExecutor := false
 	var runOnce func(string) (string, error)
 	switch node.Type {
 	case "script", "command":
@@ -660,6 +663,29 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			if point.Required && (point.Stage == "after_execution" || point.Stage == "before_publish") {
 				gates = append(gates, verificationRun{gate: domain.VerificationGate{ID: point.ID, Name: point.Name, Mode: "manual", Stage: point.Stage, Required: true}, onFailure: defaultFailure})
 			}
+		}
+		if ex.Kind == domain.A2AExecutorID {
+			remoteExecutor = true
+			if err = e.validateA2ANode(current, effectiveNode, agent, gates); err != nil {
+				break
+			}
+			manifest, inputs := runnerArtifactInputs(wf, effectiveNode, current)
+			// Remote files are scoped to this invocation. The ordinary artifact
+			// collector persists only declared outputs for downstream nodes.
+			reported = newReportedOutputs(nil)
+			outputs = reported
+			retroWorkspace = ""
+			runOnce = func(string) (string, error) {
+				prompt := renderPromptWithStore(e.repo, wf, effectiveNode, current)
+				if manifest != "" {
+					prompt += "\n\n# Upstream documents\n\n" + manifest
+				}
+				result, runErr := e.executeA2ANode(ctx, current, effectiveNode, prompt, inputs, sink)
+				remoteGate = result.gate
+				reported.absorb(&domain.RunnerTaskOutputs{Files: result.files})
+				return result.text, runErr
+			}
+			break
 		}
 		if agent.Loop.Enabled {
 			maxIterations = max(1, agent.Loop.MaxIterations)
@@ -795,7 +821,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		}
 		var submitted *domain.GateResult
 		if err == nil && requiresSubmit {
-			submitted, err = readGateResultFrom(outputs, submitPath)
+			submitted = remoteGate
+			if !remoteExecutor {
+				submitted, err = readGateResultFrom(outputs, submitPath)
+			}
 			if err != nil || submitted == nil {
 				firstProblem := "未调用 submit_gate_result"
 				if err != nil {
@@ -830,7 +859,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				failedAction = "human"
 			} else {
 				e.updateRun(runID, func(r *domain.Run) {
-					if nr := r.Nodes[node.ID]; nr != nil {
+					if nr := r.Nodes[node.ID]; shouldCommitNodeOutcome(*r, nr, executionGeneration, executionAttempt, false) {
 						copy := *submitted
 						nr.GateResult = &copy
 					}

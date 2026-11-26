@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// A2AExecutorID is the service-backed executor available to SOP nodes.
+const A2AExecutorID = "a2a"
+
 // ExecutorEffortLevels lists the reasoning-effort levels each built-in CLI
 // accepts on its command line. An empty level keeps the CLI default.
 var ExecutorEffortLevels = map[string][]string{

@@ -91,6 +91,7 @@ type Server struct {
 	notifications   *notificationHandlers
 	botInteractions *botInteractionHandlers
 	botIdentities   *botIdentityHandlers
+	webChat         *webChatHandlers
 	know            *knowledgeHandlers // knowledge.go / knowledge_proxy.go
 	feedback        *feedbackHandlers  // page_feedback.go
 }
@@ -114,7 +115,7 @@ func (b *Background) gate() <-chan struct{} {
 // caller's shutdown context. The returned stop function cancels and joins them.
 // Cancelling ctx stops claiming; running work is only cancelled by Stop.
 func NewWithNotificationsAndBackground(ctx context.Context, s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string, notifications *notification.Service, opts BackgroundOptions) (*gin.Engine, *Background) {
-	bg := &Background{recoveryGate: opts.RecoveryGate}
+	bg := &Background{recoveryGate: opts.RecoveryGate, webChat: opts.WebChat}
 	router := newWithNotifications(s, e, syncSvc, basicUser, basicPass, notifications, bg, func(h *assistantHandlers, runs *runsHandlers) {
 		h.startSessionJanitor(ctx)
 	})
@@ -221,6 +222,15 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		g.Use(basicAuth(basicUser, basicPass))
 	}
 	g.Use(d.runWriteGuard(), d.assetWriteGuard())
+
+	if bg != nil && bg.webChat != nil {
+		api.webChat = &webChatHandlers{deps: d, service: bg.webChat}
+		g.GET("/agent-chat", api.webChat.page)
+		g.GET("/api/agent-chat/threads", api.webChat.threads)
+		g.GET("/api/agent-chat/messages", api.webChat.messages)
+		g.POST("/api/agent-chat/messages", api.webChat.messages)
+		g.POST("/api/agent-chat/messages/:id/cancel", api.webChat.stop)
+	}
 
 	g.GET("/api/notification-bots", api.notifications.bots)
 	g.POST("/api/notification-bots", api.notifications.bots)
@@ -756,6 +766,7 @@ func (s *Server) bootstrap(c *gin.Context) {
 	if len(sharedModels) > 0 {
 		sponsoredModel = sharedModels[0]
 	}
+	agentChat := s.webChat != nil && s.webChat.service.AllowsSender(s.webChat.sender(c))
 	c.JSON(200, map[string]any{
 		"businessDomains": businessDomains, "projects": domain.PublicProjects(projects), "repositories": domain.PublicRepositories(repositories),
 		"agents": catalogAgents(agents), "rules": rules, "skills": skills, "mcpServers": mcpServers,
@@ -763,7 +774,7 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"workflows": workflows, "syncConfig": syncConfig, "scheduleJobs": scheduleJobs, "schedulerEnabled": schedulerEnabled(),
 		"users":        domain.PublicUsers(users),
 		"storage":      s.repo.StorageInfo(),
-		"capabilities": map[string]bool{"docker": runtime.DockerReady()},
+		"capabilities": map[string]bool{"docker": runtime.DockerReady(), "agentChat": agentChat},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models
 		// (sponsoredModel is the default).

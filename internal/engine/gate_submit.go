@@ -49,6 +49,10 @@ func readGateResultFrom(outputs nodeOutputs, path string) (*domain.GateResult, e
 		}
 		return nil, err
 	}
+	return decodeGateResult(raw)
+}
+
+func decodeGateResult(raw []byte) (*domain.GateResult, error) {
 	var result domain.GateResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("submit_gate_result payload is invalid: %w", err)

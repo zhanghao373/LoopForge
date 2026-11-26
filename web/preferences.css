@@ -27,7 +27,6 @@ html[data-lang="en"] .topbar-project-label { white-space:nowrap }
 @media(max-width:800px){html[data-lang="en"] .platform-sidebar{width:100%}}
 
 @media(max-width:600px){.topbar .page-context{display:none}}
-.sop-explainer{margin-bottom:4px}
 
 .repository-credential-hint{display:flex;align-items:flex-start;gap:16px;justify-content:space-between;margin-top:18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--hover);font-size:12px;line-height:1.65;color:var(--muted)}
 .repository-credential-hint b{display:block;margin-bottom:4px;font-weight:500;color:var(--text)}

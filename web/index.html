@@ -73,26 +73,18 @@
   <!-- 全局业务导航：56px 图标栏 -->
   <aside class="platform-rail" id="platformRail" aria-label="全局导航">
     <nav class="rail-nav">
-      <span style="display:none">日常工作</span>
-      <!-- 1. AI 工作台 (Codex 风格 Home 房子图标) -->
-      <button class="rail-btn nav" data-view="collaboration" data-tooltip="AI 工作台" aria-label="AI 工作台">
-        <svg class="agent-icon harness-icon" data-icon="home-start" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3.5 10 7.3-6a1.9 1.9 0 0 1 2.4 0l7.3 6"/><path d="M5.5 8.4v10.1A1.5 1.5 0 0 0 7 20h3v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5h3a1.5 1.5 0 0 0 1.5-1.5V8.4"/></svg>
-        <span class="rail-label">AI 工作台</span>
+      <a class="rail-btn nav" data-agent-chat-entry href="/agent-chat" data-tooltip="对话" aria-label="对话" hidden>
+        <svg class="agent-icon harness-icon" data-icon="chat" data-icon-motion="idle" width="18" height="18" aria-hidden="true" focusable="false"></svg>
+        <span class="rail-label">对话</span>
+      </a>
+      <button type="button" class="rail-btn nav" data-view="sops" data-nav-match="flow" data-tooltip="流程模板" aria-label="流程模板">
+        <svg class="agent-icon harness-icon" data-icon="workflow" data-icon-motion="idle" width="18" height="18" aria-hidden="true" focusable="false"></svg>
+        <span class="rail-label">流程模板</span>
       </button>
-
-      <!-- 2. 统计 -->
-      <button class="rail-btn nav" data-view="observability" data-tooltip="统计" aria-label="统计">
-        <svg class="agent-icon harness-icon" data-icon="chart" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 17V9"/><path d="M12 17V7"/><path d="M16 17v-5"/></svg>
-        <span class="rail-label">统计</span>
+      <button type="button" class="rail-btn nav" data-view="runs" data-tooltip="运行记录" aria-label="运行记录">
+        <svg class="agent-icon harness-icon" data-icon="runs" data-icon-motion="idle" width="18" height="18" aria-hidden="true" focusable="false"></svg>
+        <span class="rail-label">运行记录</span>
       </button>
-
-      <!-- 3. 需求列表 -->
-      <button class="rail-btn nav" data-view="issues" data-tooltip="需求列表" aria-label="需求列表">
-        <svg class="agent-icon harness-icon" data-icon="form" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8"/><path class="form-fields" d="M8 12h8M8 16h5"/></svg>
-        <span class="rail-label">需求列表</span>
-      </button>
-
-      <!-- 4. 待我确认 (带审批徽标) -->
       <button class="rail-btn nav" data-view="approvals" data-tooltip="待我确认" aria-label="待我确认">
         <svg class="agent-icon harness-icon" data-icon="gate" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="gate-shield" d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path class="gate-check agent-check-draw" pathLength="1" d="m9 12 2 2 4-4"/></svg>
         <span class="rail-label">待我确认</span>
@@ -138,15 +130,13 @@
           </div>
       </div>
       <div id="configurationNav" class="management-navigation">
-      <button class="nav management-back" data-jump="collaboration"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="chevron-left" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg></span><span class="nav-label">返回工作台</span></button>
+      <button class="nav management-back" data-jump="sops"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="chevron-left" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg></span><span class="nav-label">返回流程模板</span></button>
       <button class="nav" data-view="settings"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="user" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="head" cx="12" cy="8" r="4"/><path class="body" d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="nav-label">个人配置</span></button>
       <button class="nav" data-view="assistant" aria-label="AI 助手" title="AI 助手"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="sparkles" data-icon-motion="idle" width="15" height="15" aria-hidden="true" focusable="false"></svg></span><span class="nav-label">AI 助手</span></button>
       <p>项目</p>
       <button class="nav" data-view="projects"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="users" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><g class="team-front"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/></g><g class="team-back"><path d="M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5v1"/></g></svg></span><span class="nav-label">项目配置</span></button>
       <button class="nav" data-view="bots" aria-label="通道管理" title="通道管理"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="robot" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="8" width="16" height="11" rx="2"/><path class="antenna" d="M12 3v5"/><path class="eyes" d="M8 13h.01M16 13h.01"/><path class="mouth" d="M9 17h6"/></svg></span><span class="nav-label">通道管理</span></button>
-      <p>流程与任务</p>
-      <button class="nav" data-view="sops" data-nav-match="flow"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="workflow" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="node-a" cx="6" cy="6" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-b" cx="6" cy="18" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-c" cx="18" cy="12" r="2.2" fill="currentColor" fill-opacity="0"/><path pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55"/><path class="signal" pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55" opacity="0" stroke-width="2.5"/></svg></span><span class="nav-label">流程模板</span></button>
-      <button class="nav" data-view="runs"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="runs" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path class="motion-target" d="M10 9l5 3-5 3z"/></svg></span><span class="nav-label">运行记录</span></button>
+      <p>自动化</p>
       <button class="nav" data-view="aiSchedules"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="clock" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="nav-label">定时任务</span></button>
       <p>Agent 能力</p>
       <button class="nav" data-view="agents"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="user" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="head" cx="12" cy="8" r="4"/><path class="body" d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="nav-label">角色定义</span></button>
@@ -154,6 +144,18 @@
       <p>运行环境</p>
       <button class="nav" data-view="runners"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="server" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01"/><path d="M7 17.5h.01"/></svg></span><span class="nav-label">执行机器</span></button>
       <button class="nav" data-view="dockerfiles" data-nav-match="environments sandboxes" data-nav-icon="layers"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="layers" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></span><span class="nav-label">环境资产</span></button>
+      <details class="secondary-navigation">
+        <summary>其他功能</summary>
+        <button type="button" class="nav" data-view="collaboration">
+          <span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="home-start" data-icon-motion="idle" width="15" height="15" aria-hidden="true" focusable="false"></svg></span><span class="nav-label">AI 工作台</span>
+        </button>
+        <button type="button" class="nav" data-view="issues">
+          <span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="form" data-icon-motion="idle" width="15" height="15" aria-hidden="true" focusable="false"></svg></span><span class="nav-label">需求列表</span>
+        </button>
+        <button type="button" class="nav" data-view="observability">
+          <span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="chart" data-icon-motion="idle" width="15" height="15" aria-hidden="true" focusable="false"></svg></span><span class="nav-label">统计</span>
+        </button>
+      </details>
       <p>开放与平台</p>
       <button class="nav" data-view="guide"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="key" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="M16 7l3 3"/><path d="M18 5l2 2"/></svg></span><span class="nav-label">访问密钥</span></button>
       <div id="platformNavGroup" hidden><button class="nav" data-view="platform"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="gate" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="gate-shield" d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path class="gate-check agent-check-draw" pathLength="1" d="m9 12 2 2 4-4"/></svg></span><span class="nav-label">平台管理</span></button></div>
@@ -166,7 +168,7 @@
   <div class="shell-main">
   <!-- 顶栏：页面上下文 + 全局项目切换 + 关键操作 -->
   <header class="topbar">
-    <div class="page-context"><b id="pageTitle">AI 工作台</b><span>／ Agent 原生研发协作平台</span></div>
+    <div class="page-context"><b id="pageTitle">流程模板</b></div>
     <button id="commandPaletteTrigger" class="command-trigger" type="button"><span><svg class="agent-icon harness-icon" data-icon="search" data-icon-motion="idle" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span><b>搜索需求、运行、SOP 或 Agent</b><kbd>⌘K</kbd></button>
     <div class="topbar-spacer"></div>
     <div class="topbar-project">
@@ -360,21 +362,17 @@
     <!-- SOP 流程库 -->
     <section id="sopsView" class="view page-view">
       <div class="page-heading">
-        <div>
+        <div><h1>流程模板</h1></div>
+        <div class="heading-actions"><button id="refreshSOPs" class="button ghost" type="button">刷新</button><button id="newSOP" class="button primary" type="button">新建 SOP</button></div>
+      </div>
+      <div class="sop-page">
+        <div class="sop-toolbar">
           <div class="scope-switch" data-scope-for="sop" role="tablist" aria-label="SOP 范围">
             <button type="button" data-scope="project" class="on">本项目<span data-scope-count="sop-project">0</span></button>
             <button type="button" data-scope="shared">团队共享<span data-scope-count="sop-shared">0</span></button>
             <button type="button" data-scope="generic">内置<span data-scope-count="sop-generic">0</span></button>
           </div>
-          <p class="eyebrow">生产流程</p><h1>SOP 流程</h1><p class="sop-explainer"><b>SOP</b> 是可复用的 AI 协作流程，由 Agent、脚本和人工审批节点组成：输入一条需求，按步骤产出文档、代码或 PR。</p><p>「本项目」的 SOP 只在当前项目里用；共享后，其他项目可以在「团队共享」里选用；「内置」SOP 由平台提供，复制到本项目后即可运行和修改。</p>
-        </div>
-        <div class="heading-actions"><button id="refreshSOPs" class="button ghost" type="button">↻ 刷新</button><button id="newSOP" class="button primary" type="button">＋ 新建 SOP</button></div>
-      </div>
-      <div class="sop-page">
-        <div id="sopOverview" class="sop-overview"></div>
-        <div class="sop-toolbar">
-          <div id="sopStats" class="issue-stats sop-stats"></div>
-          <div class="sop-toolbar-filters"><select id="sopHealthFilter" class="select"><option value="all">全部健康状态</option><option value="active">正在运行</option><option value="closed">成功完成</option><option value="blocked">存在失败</option><option value="never">从未运行</option></select><select id="sopSort" class="select"><option value="recent">最近运行</option><option value="runs">运行次数</option><option value="closure">成功率</option><option value="failures">失败数</option></select></div>
+          <div class="sop-toolbar-filters"><select id="sopHealthFilter" class="select" aria-label="运行状态筛选"><option value="all">全部健康状态</option><option value="active">正在运行</option><option value="closed">成功完成</option><option value="blocked">存在失败</option><option value="never">从未运行</option></select><select id="sopSort" class="select" aria-label="模板排序"><option value="recent">最近运行</option><option value="runs">运行次数</option><option value="closure">成功率</option><option value="failures">失败数</option></select></div>
         </div>
         <div id="sopCatalog" class="sop-catalog"></div>
       </div>

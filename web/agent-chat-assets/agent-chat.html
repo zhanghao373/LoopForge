@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>对话 · LoopForge</title>
+  <script src="/boot-theme.js"></script>
+  <link rel="stylesheet" href="/agent-chat-assets/agent-chat.css">
+  <script src="/agent-chat-assets/agent-chat.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>对话</h1>
+      <div class="header-actions">
+        <a href="/#/sops">流程模板</a>
+        <a id="new-thread" class="new-thread" href="/agent-chat">新建对话</a>
+      </div>
+    </header>
+    <nav id="threads" aria-label="会话"><a href="/agent-chat">默认对话</a></nav>
+    <section id="messages" role="log" aria-label="对话记录"></section>
+    <form id="composer">
+      <div id="ticket-target" hidden>
+        <span id="ticket-label"></span>
+        <button id="clear-ticket" class="quiet-button" type="button">退出任务追问</button>
+      </div>
+      <label for="message">消息</label>
+      <textarea id="message" rows="3" required placeholder="输入你的问题"></textarea>
+      <details id="attachment">
+        <summary>附加文本</summary>
+        <label for="document">供本轮读取的文本</label>
+        <textarea id="document" rows="3"></textarea>
+      </details>
+      <div class="actions">
+        <span id="status" role="status"></span>
+        <div class="turn-actions">
+          <button id="send" type="submit" disabled>发送</button>
+          <button id="delegate" class="quiet-button" type="submit" disabled>委派任务</button>
+        </div>
+      </div>
+    </form>
+    <noscript>请开启 JavaScript 以使用对话。</noscript>
+  </main>
+</body>
+</html>

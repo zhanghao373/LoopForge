@@ -199,7 +199,7 @@ func newStore(db *gorm.DB) *Store {
 	s.ProjectsRepo = &ProjectsRepo{deps: d}
 	s.BusinessDomainsRepo = &BusinessDomainsRepo{deps: d}
 	s.UsersRepo = &UsersRepo{deps: d}
-	s.BotInteractionsRepo = &BotInteractionsRepo{deps: d}
+	s.BotInteractionsRepo = &BotInteractionsRepo{deps: d, users: s.UsersRepo}
 	s.TokensRepo = &TokensRepo{deps: d}
 	s.AssistantRepo = &AssistantRepo{deps: d, users: s.UsersRepo}
 	s.TasksRepo = &TasksRepo{deps: d}

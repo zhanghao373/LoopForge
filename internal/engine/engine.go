@@ -14,12 +14,14 @@ import (
 	"agentflow/internal/preview"
 	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
+	"agentflow/internal/runtime/a2a"
 )
 
 type Engine struct {
 	repo               *repo.Store
 	sandboxes          *runtime.Manager
 	runner             *runtime.ExecutorRunner
+	a2aClient          *a2a.Client
 	mu                 sync.Mutex
 	stateMu            sync.Mutex
 	running            map[string]context.CancelFunc

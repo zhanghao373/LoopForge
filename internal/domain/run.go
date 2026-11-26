@@ -150,6 +150,7 @@ type NodeRun struct {
 	Model           string      `json:"model,omitempty"`
 	SessionID       string      `json:"sessionId,omitempty"`
 	ResumeSessionID string      `json:"resumeSessionId,omitempty"`
+	A2ATaskID       string      `json:"a2aTaskId,omitempty"`
 	Activity        string      `json:"activity,omitempty"`
 	Feedback        string      `json:"feedback,omitempty"`
 	Usage           TokenUsage  `json:"usage"`

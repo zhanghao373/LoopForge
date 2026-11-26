@@ -41,8 +41,6 @@ func TestSOPsHarnessStylesheetIsScopedAndLoadsLast(t *testing.T) {
 		t.Fatal("sops-harness.css must not use inherit inside the font shorthand; the whole declaration would be dropped")
 	}
 	for _, want := range []string{
-		"#sopsView .overview-metric::before { display: none; }",
-		"#sopsView .overview-metric.is-bad b { color: var(--hui-error); }",
 		"#sopsView .sop-kpis .is-bad b { color: var(--hui-error); }",
 		"#sopsView .button.primary { background: var(--hui-accent);",
 		"#sopsView .page-heading > div:first-child { flex: 1 1 auto; min-width: 0;",
@@ -77,7 +75,6 @@ func TestSOPCatalogMarksFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`<div class="overview-metric danger${failed>0?' is-bad':''}"><span>失败运行</span>`,
 		`<span${m.failedRuns>0?' class="is-bad"':''}><b>${m.failedRuns||0}</b>失败</span>`,
 	} {
 		if !strings.Contains(string(src), want) {
@@ -91,6 +88,9 @@ func TestSOPCatalogMarksFailures(t *testing.T) {
 	section := string(html)
 	section = section[strings.Index(section, `<section id="sopsView"`):]
 	section = section[:strings.Index(section, "</section>")]
+	if strings.Contains(section, `id="sopOverview"`) || strings.Contains(section, `class="sop-explainer"`) {
+		t.Fatal("the catalog starts with templates and the existing filters")
+	}
 	if got := strings.Count(section, `class="button primary"`); got != 1 || !strings.Contains(section, `id="newSOP" class="button primary"`) {
 		t.Fatalf("新建 SOP must be the only solid primary button on the SOP page, got %d", got)
 	}

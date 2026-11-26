@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"agentflow/internal/domain"
+	"gorm.io/gorm"
 )
 
 // ---------- Users ----------
@@ -113,6 +114,10 @@ func (r *UsersRepo) Users() []domain.User {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LoginName < out[j].LoginName })
 	return out
+}
+
+func (r *UsersRepo) lockUser(tx *gorm.DB, id int64) error {
+	return r.locking(tx).Select("id").Take(&userRow{}, "id = ?", id).Error
 }
 
 func (r *UsersRepo) User(id int64) (domain.User, bool) {

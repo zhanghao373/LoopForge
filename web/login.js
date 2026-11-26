@@ -51,6 +51,8 @@ $('loginForm').onsubmit = async event => {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || t('操作失败', 'Request failed'));
-    location.replace('/');
+    const returnUrl = new URLSearchParams(location.search).get('returnUrl');
+    const allowedChat = /^\/agent-chat(?:\?thread=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
+    location.replace(allowedChat.test(returnUrl || '') ? returnUrl : '/');
   } catch (err) { error.textContent = err.message; button.disabled = false; }
 };

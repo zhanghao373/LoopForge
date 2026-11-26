@@ -256,6 +256,14 @@ func BuiltInExecutor(id string) (domain.ExecutorDefinition, bool) {
 	return domain.ExecutorDefinition{}, false
 }
 
+// SOPExecutor includes the service-backed executor alongside the CLI catalog.
+func SOPExecutor(id string) (domain.ExecutorDefinition, bool) {
+	if strings.TrimSpace(id) == domain.A2AExecutorID {
+		return domain.ExecutorDefinition{ID: domain.A2AExecutorID, Kind: domain.A2AExecutorID, Name: "A2A Agent"}, true
+	}
+	return BuiltInExecutor(id)
+}
+
 func BuiltInExecutorForKind(kind string) (domain.ExecutorDefinition, bool) {
 	for _, executor := range BuiltInExecutors() {
 		if executor.Kind == strings.TrimSpace(kind) {

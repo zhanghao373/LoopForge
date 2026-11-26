@@ -82,6 +82,7 @@ func (e *Engine) Cancel(runID string) error {
 	// synchronously so approval/pause records can always be cancelled from the
 	// control-plane-only API process.
 	if r.Status == "waiting" {
+		e.stopUnownedA2ATasks(full)
 		e.forceTerminate(runID, "cancelled", "流水线已取消")
 		return nil
 	}
@@ -98,6 +99,7 @@ func (e *Engine) Cancel(runID string) error {
 	if err != nil {
 		return nil
 	}
+	e.stopUnownedA2ATasks(full)
 	e.settleOrphan(runID, "运行已被手动终止（调度协程不存在，可能由服务重启导致）")
 	_ = e.repo.ReleaseRunLease(runID, e.instanceID, r.Generation)
 	return nil
@@ -132,6 +134,7 @@ func (e *Engine) Pause(runID string) error {
 	if err != nil {
 		return nil
 	}
+	e.stopUnownedA2ATasks(full)
 	e.pauseAt(runID, r.Generation, "运行已由用户暂停")
 	_ = e.repo.ReleaseRunLease(runID, e.instanceID, r.Generation)
 	return nil

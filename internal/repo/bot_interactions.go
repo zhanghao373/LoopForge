@@ -11,7 +11,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type BotInteractionsRepo struct{ *deps }
+type BotInteractionsRepo struct {
+	*deps
+	users *UsersRepo
+}
 
 func BotConversationID(botID, kind, chatID string) string {
 	return hexSHA256(botID + "\x00" + kind + "\x00" + chatID)
@@ -55,8 +58,17 @@ func (r *BotInteractionsRepo) BotConnectionState(botID string) (domain.BotConnec
 	return out, err
 }
 func (r *BotInteractionsRepo) EnqueueBotInteraction(item domain.BotInteraction, kind, chat string) (bool, error) {
+	return r.enqueueBotInteraction(item, kind, chat, nil)
+}
+
+func (r *BotInteractionsRepo) enqueueBotInteraction(item domain.BotInteraction, kind, chat string, admit func(*gorm.DB) error) (bool, error) {
 	inserted := false
 	err := r.DB.Transaction(func(tx *gorm.DB) error {
+		if admit != nil {
+			if err := admit(tx); err != nil {
+				return err
+			}
+		}
 		conversation := domain.BotConversation{ID: BotConversationID(item.BotID, kind, chat), BotID: item.BotID, ChatID: chat, ChatType: kind, SessionID: newBotSessionID(), UpdatedAt: time.Now().UTC()}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&conversation).Error; err != nil {
 			return err
@@ -70,31 +82,74 @@ func (r *BotInteractionsRepo) EnqueueBotInteraction(item domain.BotInteraction, 
 		if result.Error != nil {
 			return result.Error
 		}
-		if inserted {
-			return tx.Model(&conversation).Update("updated_at", item.CreatedAt).Error
+		if !inserted {
+			return gorm.ErrDuplicatedKey
 		}
-		return nil
+		return tx.Model(&conversation).Update("updated_at", item.CreatedAt).Error
 	})
+	if errors.Is(err, gorm.ErrDuplicatedKey) && !inserted {
+		return false, nil
+	}
 	return inserted, err
 }
 func (r *BotInteractionsRepo) ClaimBotInteraction(botID, leaseBotID, owner string) (*domain.BotInteraction, error) {
+	return r.claimBotInteraction(botID, leaseBotID, owner, false, 0)
+}
+
+func (r *BotInteractionsRepo) ClaimBridgeTurn(botID, owner string, maxRunningPerSender int) (*domain.BotInteraction, error) {
+	return r.claimBotInteraction(botID, botID, owner, true, maxRunningPerSender)
+}
+
+func (r *BotInteractionsRepo) claimBotInteraction(botID, leaseBotID, owner string, onePerConversation bool, maxRunningPerSender int) (*domain.BotInteraction, error) {
 	var item domain.BotInteraction
 	err := r.DB.Transaction(func(tx *gorm.DB) error {
 		var lease domain.BotConnection
 		if err := r.locking(tx).Where("bot_id = ? AND owner = ? AND lease_until > ?", leaseBotID, owner, time.Now().UTC()).First(&lease).Error; err != nil {
 			return err
 		}
-		if err := r.locking(tx).Where("bot_id = ? AND status IN ?", botID, []string{"queued", "ready"}).Order("created_at, id").First(&item).Error; err != nil {
+		queue := r.locking(tx).Where("bot_id = ? AND status IN ?", botID, []string{"queued", "ready"})
+		if onePerConversation {
+			queue = queue.Where("a2a_retry_at IS NULL OR a2a_retry_at <= ?", time.Now().UTC()).
+				Where(`NOT EXISTS (
+					SELECT 1 FROM bot_interactions AS active
+					WHERE active.conversation_id = bot_interactions.conversation_id
+					AND COALESCE(active.web_ticket_id, '') = COALESCE(bot_interactions.web_ticket_id, '')
+					AND (COALESCE(active.web_auto_route, FALSE) AND COALESCE(active.web_route_action, '') = '')
+					  = (COALESCE(bot_interactions.web_auto_route, FALSE) AND COALESCE(bot_interactions.web_route_action, '') = '')
+					AND (
+						active.status = 'running'
+						OR (active.status = 'queued' AND active.a2a_retry_at IS NOT NULL AND (
+							active.created_at < bot_interactions.created_at
+							OR (active.created_at = bot_interactions.created_at AND active.id < bot_interactions.id)
+						))
+					)
+				)`)
+		}
+		if maxRunningPerSender > 0 {
+			// A paused or requeued turn can still have an active remote task.
+			// Resuming it preserves its existing slot for this sender.
+			queue = queue.Where(`bot_interactions.session_id <> '' OR (
+				SELECT COUNT(*) FROM bot_interactions AS in_flight
+				WHERE in_flight.bot_id = bot_interactions.bot_id
+				  AND in_flight.sender_id = bot_interactions.sender_id
+				  AND in_flight.status IN ('queued', 'running')
+				  AND in_flight.session_id <> ''
+			) < ?`, maxRunningPerSender)
+		}
+		if err := queue.Order("created_at, id").First(&item).Error; err != nil {
 			return err
 		}
 		if item.Status == "ready" {
 			return nil
 		}
-		var conv domain.BotConversation
-		if err := tx.First(&conv, "id = ?", item.ConversationID).Error; err != nil {
-			return err
+		item.SessionID = item.WebTicketID
+		if item.SessionID == "" {
+			var conv domain.BotConversation
+			if err := tx.First(&conv, "id = ?", item.ConversationID).Error; err != nil {
+				return err
+			}
+			item.SessionID = conv.SessionID
 		}
-		item.SessionID = conv.SessionID
 		item.Status = "running"
 		return tx.Model(&item).Updates(map[string]any{"session_id": item.SessionID, "status": "running", "updated_at": time.Now().UTC()}).Error
 	})

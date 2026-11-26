@@ -158,6 +158,7 @@ func (e *Engine) ResumeInterruptedRuns() []string {
 				continue
 			}
 			_ = e.cancelRunnerTasksForRun(r.ID)
+			e.stopUnownedA2ATasks(acquired)
 			e.settleOrphan(r.ID, "运行已被手动终止")
 			_ = e.repo.ReleaseRunLease(r.ID, e.instanceID, acquired.Generation)
 			continue
@@ -208,12 +209,14 @@ func (e *Engine) ResumeInterruptedRuns() []string {
 		}
 		if r.CancelRequested || acquired.CancelRequested {
 			_ = e.cancelRunnerTasksForRun(r.ID)
+			e.stopUnownedA2ATasks(acquired)
 			e.settleOrphan(r.ID, "运行已被手动终止")
 			_ = e.repo.ReleaseRunLease(r.ID, e.instanceID, acquired.Generation)
 			continue
 		}
 		if r.PauseRequested || acquired.PauseRequested {
 			_ = e.cancelRunnerTasksForRun(r.ID)
+			e.stopUnownedA2ATasks(acquired)
 			e.pauseAt(r.ID, acquired.Generation, "运行已由用户暂停")
 			_ = e.repo.ReleaseRunLease(r.ID, e.instanceID, acquired.Generation)
 			continue

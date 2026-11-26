@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"agentflow/internal/botinteraction"
 	"agentflow/internal/schedule"
 )
 
@@ -73,6 +74,7 @@ func (t *inflightTracker) Wait(ctx context.Context) error {
 // handover: StopClaiming → WaitInflight → Stop.
 type Background struct {
 	recoveryGate   <-chan struct{}
+	webChat        *botinteraction.ChatBridge
 	scheduler      *schedule.Service
 	runnerControls *runnerControlHub
 	handedOver     atomic.Bool
@@ -86,6 +88,7 @@ type BackgroundOptions struct {
 	// (clarifications, schedule jobs) until it closes, so a successor does not
 	// reclaim work its still-draining predecessor is finishing.
 	RecoveryGate <-chan struct{}
+	WebChat      *botinteraction.ChatBridge
 }
 
 // StopClaiming stops polling for new follow-ups, SOP handoffs and schedule

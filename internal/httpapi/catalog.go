@@ -315,7 +315,11 @@ func (h *catalogHandlers) agents(c *gin.Context) {
 			if strings.TrimSpace(v.ExecutorID) == "" {
 				v.ExecutorID = "codebuddy"
 			}
-			builtIn, ok := repo.BuiltInExecutor(v.ExecutorID)
+			builtIn, ok := repo.SOPExecutor(v.ExecutorID)
+			if builtIn.Kind == domain.A2AExecutorID && (h.engine == nil || !h.engine.A2AEnabled()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "A2A 执行器尚未配置"})
+				return
+			}
 			if !ok {
 				c.JSON(http.StatusBadRequest, map[string]string{"error": "不支持的 CLI：" + v.ExecutorID})
 				return
@@ -1233,7 +1237,11 @@ func (h *catalogHandlers) workflow(c *gin.Context) {
 		if strings.TrimSpace(agent.ExecutorID) == "" {
 			agent.ExecutorID = "codebuddy"
 		}
-		builtIn, ok := repo.BuiltInExecutor(agent.ExecutorID)
+		builtIn, ok := repo.SOPExecutor(agent.ExecutorID)
+		if builtIn.Kind == domain.A2AExecutorID && (h.engine == nil || !h.engine.A2AEnabled()) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "A2A 执行器尚未配置"})
+			return
+		}
 		if !ok {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": "不支持的 CLI：" + agent.ExecutorID})
 			return

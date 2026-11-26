@@ -328,3 +328,28 @@ body.management-mode:is(.settings-sidebar-hidden, .settings-sidebar-entering) .p
     gap: 10px !important;
   }
 }
+
+[data-agent-chat-entry][hidden] {
+  display: none !important;
+}
+
+a[data-agent-chat-entry] {
+  text-decoration: none;
+}
+
+a[data-agent-chat-entry]:focus-visible {
+  outline: 2px solid var(--hui-focus-ring);
+  outline-offset: -2px;
+}
+
+.secondary-navigation > summary {
+  padding: 8px 10px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.secondary-navigation > summary:hover {
+  color: var(--text);
+}
+.secondary-navigation > button.nav {
+  padding-inline-start: 18px;
+}
